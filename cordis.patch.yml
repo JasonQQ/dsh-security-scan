@@ -1,0 +1,9 @@
+# dsh.bundle manifest for dsh-security-gate.
+#
+# Inserting this row into a DSH profile composes the plugin. It needs no other
+# row: the gate declares no service dependency beyond the tool registry and the
+# command registry, both of which the shipped `@deepseek-ai/dsh-base`
+# composition already provides, and it declares no runtime dependency at all.
+- insert:
+    - id: security-gate
+      name: dsh-security-gate

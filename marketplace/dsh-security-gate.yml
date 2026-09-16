@@ -1,0 +1,32 @@
+# Marketplace entry for awesome-dsh-plugin.
+#
+# This is the whole submission: open ONE pull request adding ONE file named
+# `data/plugins/<owner>__<repo>.yml`, copied from this one. The READMEs in the
+# marketplace repository are generated from `data/plugins/*.yml` — do not edit
+# them by hand, and do not run the generator yourself.
+#
+# Before submitting, replace both OWNER placeholders with the GitHub account that
+# hosts the repository. `url` must match the real repository exactly: the CI job
+# fetches `package.json` from that URL and checks that it declares `dsh.bundle`
+# (this repository does — see `cordis.patch.yml`). See `docs/publishing.md`.
+#
+# Category `security` is the closest fit: the plugin's two layers are a
+# pre-install static audit and a runtime guard for tool calls. Categories are
+# never a reason for rejection — a maintainer re-files a near miss.
+#
+# The description is read as a claim about the code and checked against it. Every
+# number below is verified by `npm run inventory` and `npm test` in this
+# repository; re-run them before submitting and fix the line if anything drifted.
+url: https://github.com/OWNER/dsh-security-gate
+name: OWNER/dsh-security-gate
+category: security
+description:
+  en: 'Two-layer security for DSH: pre-install static audit of plugin sources graded A-D with refusal below the configured floor, plus a runtime guard over tools/pre-execute and tools/post-execute covering 158 rules, output redaction of leaked secrets and an HMAC hash-chained audit log.'
+  zh: 'DSH 的两层安全插件：安装前静态体检插件源码并按 A–D 评级、低于阈值直接拒绝安装，运行时护栏挂在 tools/pre-execute 与 tools/post-execute 上、共 158 条规则，可对结果中泄露的密钥打码，并写入 HMAC 哈希链审计日志。'
+
+# Optional. Attach a prebuilt tarball to a GitHub Release to give storefronts a
+# download link instead of a build-from-source command. Note the marketplace
+# rule: `latest/download/` takes the filename literally, so keep the asset name
+# version-free, or pin the release tag instead.
+#
+# tarball: https://github.com/OWNER/dsh-security-gate/releases/latest/download/dsh-security-gate.tgz

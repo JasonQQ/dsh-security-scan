@@ -1,0 +1,73 @@
+{
+  "name": "dsh-security-gate",
+  "version": "0.1.0",
+  "description": "Two-layer security plugin for DeepSeek Harness: a pre-install static audit that grades plugin sources A-D and refuses D, plus runtime guardrails that block destructive tool arguments, redact leaked secrets, and record every decision in an HMAC hash-chained log.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "docs",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "README.md",
+    "README.zh.md"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf lib",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.js && node scripts/guard-smoke.mjs",
+    "test:unit": "node --test test/*.test.js",
+    "smoke": "node scripts/guard-smoke.mjs",
+    "inventory": "node scripts/inventory.mjs",
+    "prepublishOnly": "npm run clean && npm run build && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dsh-security-gate.git"
+  },
+  "homepage": "https://github.com/OWNER/dsh-security-gate#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dsh-security-gate/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "plugin",
+    "security",
+    "supply-chain",
+    "audit",
+    "guardrail",
+    "static-analysis",
+    "ssrf",
+    "secret-scanning"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.11', '22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install build tooling
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: node --test test/
+
+      - name: The package must have no runtime dependencies
+        run: |
+          node -e "
+          const pkg = require('./package.json');
+          const deps = Object.keys(pkg.dependencies ?? {});
+          if (deps.length > 0) {
+            console.error('runtime dependencies are not allowed: ' + deps.join(', '));
+            process.exit(1);
+          }
+          console.log('dependencies: none');
+          "
+
+      - name: 'The built output must import only node: builtins'
+        run: |
+          node -e "
+          const { readdirSync, readFileSync, statSync } = require('node:fs');
+          const { join } = require('node:path');
+          const specifiers = new Set();
+          const walk = (dir) => {
+            for (const entry of readdirSync(dir)) {
+              const absolute = join(dir, entry);
+              if (statSync(absolute).isDirectory()) { walk(absolute); continue; }
+              if (!absolute.endsWith('.js')) continue;
+              const source = readFileSync(absolute, 'utf8');
+              for (const match of source.matchAll(/(?:^|[^\w.])(?:import|export)[^;]*?from\s*['\"]([^'\"]+)['\"]/g)) specifiers.add(match[1]);
+              for (const match of source.matchAll(/require\(\s*['\"]([^'\"]+)['\"]\s*\)/g)) specifiers.add(match[1]);
+            }
+          };
+          walk('lib');
+          const bare = [...specifiers].filter((s) => !s.startsWith('node:') && !s.startsWith('.'));
+          if (bare.length > 0) {
+            console.error('lib/ imports non-builtin modules: ' + bare.join(', '));
+            process.exit(1);
+          }
+          console.log('lib/ imports only node: builtins and relative paths (' + specifiers.size + ' specifiers)');
+          "
+
+      - name: The package must declare no install-time scripts
+        run: |
+          node -e "
+          const pkg = require('./package.json');
+          const banned = ['preinstall', 'install', 'postinstall', 'prepublish', 'prepare'];
+          const found = banned.filter((hook) => pkg.scripts?.[hook] !== undefined);
+          if (found.length > 0) {
+            console.error('install-time lifecycle scripts are not allowed in a security plugin: ' + found.join(', '));
+            process.exit(1);
+          }
+          console.log('no install-time scripts');
+          "
+
+      - name: Verify the dsh.bundle manifest is installable
+        run: |
+          node -e "
+          const pkg = require('./package.json');
+          if (!pkg.dsh?.bundle?.patch) {
+            console.error('package.json must declare dsh.bundle.patch');
+            process.exit(1);
+          }
+          const patch = pkg.dsh.bundle.patch.replace(/^\.\//, '');
+          if (!require('node:fs').existsSync(patch)) {
+            console.error('dsh.bundle.patch points at a missing file: ' + patch);
+            process.exit(1);
+          }
+          console.log('dsh.bundle.patch -> ' + patch);
+          "

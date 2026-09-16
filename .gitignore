@@ -1,0 +1,10 @@
+node_modules/
+lib/
+*.tgz
+*.log
+npm-debug.log*
+.npm-cache/
+.DS_Store
+tsconfig.*.json
+!tsconfig.json
+coverage/
