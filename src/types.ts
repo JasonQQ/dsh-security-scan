@@ -102,13 +102,22 @@ export interface Capabilities {
 
 /** One npm lifecycle script found in a manifest. */
 export interface InstallScript {
-  /** `preinstall`, `install`, `postinstall`, `prepare`, … */
+  /** `preinstall`, `install`, `postinstall`, `prepare`, `prepack`, … */
   hook: string;
   command: string;
   /** Path of the manifest that declared it, relative to the scanned root. */
   file: string;
   /** True when this hook belongs to a dependency rather than the scanned package. */
   fromDependency: boolean;
+  /**
+   * True when the hook runs on the installing machine.
+   *
+   * `prepack`, `postpack`, `prepublish` and `prepublishOnly` are publish-time
+   * hooks: they run in the maintainer's checkout and never on a user's machine.
+   * Only `preinstall`, `install`, `postinstall` and `prepare` do, and only those
+   * can be paired with a network sink to mean anything.
+   */
+  installTime: boolean;
 }
 
 /** The subset of `package.json` the audit reasons about. */
@@ -136,12 +145,22 @@ export interface ScannedFile {
 
 /** Where a scan's input came from. */
 export interface ScanSource {
-  /** `directory` | `tarball` | `url`. */
-  kind: 'directory' | 'tarball' | 'url';
-  /** The path or URL as given. */
+  /**
+   * `directory` | `tarball` | `url` | `installed`.
+   *
+   * `installed` means the source was an installed plugin's name, resolved
+   * through the profile's `node_modules` — a different question from "is this
+   * safe to install?", namely "what did I actually end up with?".
+   */
+  kind: 'directory' | 'tarball' | 'url' | 'installed';
+  /** The path, URL, or package name as given. */
   value: string;
   /** Resolved absolute path of the staged copy, when the input was materialized. */
   stagedPath?: string;
+  /** For `installed`: the profile whose `node_modules` the package was found in. */
+  profile?: string;
+  /** For `installed`: true when the installed entry is a symlink to live source. */
+  linked?: boolean;
 }
 
 /** The full result of one pre-install audit. */

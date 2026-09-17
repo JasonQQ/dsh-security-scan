@@ -32,6 +32,27 @@ export interface FileInfo {
   lines: string[];
   kind: FileKind;
   bytes: number;
+  /**
+   * True when the file is machine-generated output rather than authored source.
+   *
+   * Recognized by shape — a handful of enormous lines, or a sourcemap trailer.
+   * It matters because a minifier inlines string literals from every dependency,
+   * mangles identifiers and removes the surrounding structure a reviewer would
+   * use to judge intent, so a literal inside a bundle is much weaker evidence
+   * than the same literal in hand-written code. Rules whose evidence is a
+   * literal cap themselves here via `generatedFileSeverity`.
+   */
+  generated?: boolean;
+  /**
+   * True for build-tool configuration (`*.config.ts`, `tsconfig.json`, …).
+   *
+   * These run in the maintainer's checkout, never on the machine that installs
+   * the package, so they are excluded from the *correlation* layer: a build
+   * config that serializes `process.env` into a define block is ordinary
+   * tooling, and pairing it with a network sink somewhere else in the package
+   * proved nothing except that the package has a build step.
+   */
+  devOnly?: boolean;
   /** Message when the file could not be decoded as UTF-8 text. */
   decodeError?: string;
 }
@@ -72,6 +93,19 @@ export interface LineRule {
    * definition).
    */
   inspectComments?: boolean;
+  /**
+   * The worst severity this rule may report when its evidence sits in a
+   * machine-generated file (see {@link FileInfo.generated}).
+   *
+   * Set it on rules whose evidence is a bare string literal or a minification
+   * artifact. A minifier inlines literals from every dependency, so "this bundle
+   * contains `~/.ssh/id_rsa`" says very little, while "this bundle calls
+   * `child_process.exec`" still says a lot. Capping keeps such a finding visible
+   * without letting it drive the grade — which matters because DSH plugins
+   * normally ship a bundled `lib/`, so without this nearly every bundled plugin
+   * would grade `D` and the grade would stop meaning anything.
+   */
+  generatedFileSeverity?: Severity;
   /** Inspect one line; return the offending excerpt(s) when it violates the rule. */
   test: (line: string, file: FileInfo) => string | string[] | undefined | null | false;
   /** Maximum findings this rule emits per file; defaults to {@link DEFAULT_PER_FILE_CAP}. */

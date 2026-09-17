@@ -118,6 +118,22 @@ const LIFECYCLE_HOOKS: readonly string[] = [
   'postpack',
 ];
 
+/**
+ * Hooks that run on the machine that *installs* the package.
+ *
+ * The distinction is the whole point of the install-script rules, and conflating
+ * the two produced a critical finding on a plugin whose only hook was `prepack`.
+ * `prepack`, `postpack`, `prepublish` and `prepublishOnly` run in the
+ * maintainer's checkout when they pack or publish — they never execute on a
+ * user's machine, so pairing them with a network sink proves nothing about what
+ * installing the tarball does.
+ *
+ * `prepare` is included because npm does run it on a bare `npm install` in a
+ * package root and when installing a git dependency, which are both paths a user
+ * can take.
+ */
+const INSTALL_TIME_HOOKS: readonly string[] = ['preinstall', 'install', 'postinstall', 'prepare'];
+
 /** Classify a file path. */
 export function classifyFile(path: string): FileKind {
   const base = basename(path);
@@ -149,7 +165,54 @@ export function toFileInfo(path: string, bytes: Buffer): FileInfo {
     return { ...info, decodeError: 'binary file: contents are not scanned' };
   }
   const text = bytes.toString('utf8');
-  return { ...info, text, lines: text.split(/\r?\n/) };
+  const lines = text.split(/\r?\n/);
+  const generated = kind === 'code' || kind === 'script' ? looksGenerated(lines, bytes.length) : false;
+  return {
+    ...info,
+    text,
+    lines,
+    ...(generated ? { generated: true } : {}),
+    ...(isBuildConfig(path) ? { devOnly: true } : {}),
+  };
+}
+
+/**
+ * Whether a path names build-tool configuration.
+ *
+ * Kept narrow on purpose. `<name>.config.<ext>` is the convention every bundler
+ * uses, and `tsconfig*.json` is the compiler's. Matching more broadly — anything
+ * named `config`, or a whole `scripts/` directory — would start excluding files
+ * that genuinely run at install time.
+ *
+ * @param path - path relative to the scanned root.
+ * @returns true when the file configures a build rather than shipping behaviour.
+ */
+export function isBuildConfig(path: string): boolean {
+  const base = basename(path).toLowerCase();
+  if (/\.config\.(?:[cm]?[jt]s|tsx)$/.test(base)) return true;
+  return /^tsconfig(?:\.[a-z0-9-]+)?\.json$/.test(base);
+}
+
+/**
+ * Whether a file is machine-generated output rather than authored source.
+ *
+ * Structural, not name-based: a bundled `lib/client.js` is a handful of
+ * enormous lines, whereas an authored file has many short ones. Matching on the
+ * path (`lib/`, `dist/`) would be wrong in both directions — plenty of plugins
+ * hand-write `lib/`, and plenty bundle into `src/`.
+ *
+ * @param lines - the decoded lines.
+ * @param bytes - the file's size.
+ * @returns true when the shape says a build tool wrote it.
+ */
+export function looksGenerated(lines: readonly string[], bytes: number): boolean {
+  if (bytes < 8 * 1024) return false;
+  // Few lines, many bytes: the definition of minification.
+  if (lines.length <= 40 && bytes / Math.max(1, lines.length) > 2000) return true;
+  // A sourcemap trailer is a build tool's signature even in lightly bundled output.
+  if (/\/\/[#@]\s*sourceMappingURL=/.test(lines.slice(-3).join('\n'))) return true;
+  // One enormous line that is almost all non-whitespace.
+  return lines.some((line) => line.length > 50_000 && line.split(/\s+/).length < line.length / 200);
 }
 
 /**
@@ -215,7 +278,13 @@ function installScriptsFrom(
   const out: InstallScript[] = [];
   for (const hook of Object.keys(manifest.scripts)) {
     if (!LIFECYCLE_HOOKS.includes(hook)) continue;
-    out.push({ hook, command: manifest.scripts[hook] as string, file: path, fromDependency });
+    out.push({
+      hook,
+      command: manifest.scripts[hook] as string,
+      file: path,
+      fromDependency,
+      installTime: INSTALL_TIME_HOOKS.includes(hook),
+    });
   }
   return out;
 }

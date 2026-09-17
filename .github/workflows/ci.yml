@@ -59,7 +59,7 @@ jobs:
               if (statSync(absolute).isDirectory()) { walk(absolute); continue; }
               if (!absolute.endsWith('.js')) continue;
               const source = readFileSync(absolute, 'utf8');
-              for (const match of source.matchAll(/(?:^|[^\w.])(?:import|export)[^;]*?from\s*['\"]([^'\"]+)['\"]/g)) specifiers.add(match[1]);
+              for (const match of source.matchAll(/^[ \t]*(?:import|export)\b[^;]*?\bfrom\s*['\"]([^'\"]+)['\"]/gm)) specifiers.add(match[1]);
               for (const match of source.matchAll(/require\(\s*['\"]([^'\"]+)['\"]\s*\)/g)) specifiers.add(match[1]);
             }
           };

@@ -22,6 +22,7 @@ import { safeClip } from '../util/text.js';
 import { type Extraction, extract, lineViews } from './extract.js';
 import { commentMask } from './comments.js';
 import { DEFAULT_LIMITS, type LoadLimits, type StagedSource, loadDirectory, loadTarball } from './load.js';
+import { type InstalledResolution, dshHome, resolveInstalledPackage } from './installed.js';
 import { LINE_RULES, PACKAGE_RULES } from './rules.catalog.js';
 import { type PackageHit, type RuleInput, DEFAULT_PER_FILE_CAP, isLineRule } from './rule-types.js';
 import { atOrBelow, scoreFindings } from './score.js';
@@ -49,12 +50,18 @@ export interface AuditOptions {
    * comes back with `blocked: true`. Defaults to `D`, i.e. only D is refused.
    */
   blockAtOrBelow?: Grade;
+  /** Environment to resolve `DSH_HOME` from when looking up an installed name. */
+  env?: NodeJS.ProcessEnv;
+  /** Working directory used as a final `node_modules` search root. */
+  cwd?: string;
 }
 
 /** A resolved-and-staged input. */
 interface ResolvedSource {
   source: ScanSource;
   staged: StagedSource;
+  /** Set when the source was resolved from an installed package name. */
+  resolution?: InstalledResolution;
 }
 
 /** Compute a stable digest over a staged tree. */
@@ -72,6 +79,11 @@ function digestOf(staged: StagedSource): string {
 /** Whether a path names a tarball the loader understands. */
 function isArchivePath(path: string): boolean {
   return /\.(?:tgz|tar\.gz|tar)$/i.test(path);
+}
+
+/** The milder of two severities. */
+function worstOf(left: Severity, right: Severity): Severity {
+  return SEVERITY_ORDER.indexOf(left) >= SEVERITY_ORDER.indexOf(right) ? left : right;
 }
 
 /** Resolve a source string into staged bytes. */
@@ -106,7 +118,30 @@ async function resolveSource(source: string, options: AuditOptions): Promise<Res
   try {
     stats = statSync(absolute);
   } catch {
-    throw new Error(`no such file or directory: ${absolute}`);
+    // Not a path on disk. Before giving up, treat the argument as an installed
+    // plugin name: "audit what I already have" is the question a bare name asks,
+    // and it is answered from the profile's own node_modules rather than from
+    // anything fetched.
+    const installed = resolveInstalledPackage(source, {
+      ...(options.env !== undefined ? { env: options.env } : {}),
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+    });
+    if (installed === undefined) {
+      throw new Error(
+        `no such file or directory: ${absolute}. If "${source}" is meant to be a plugin name, it is not installed in any profile under ${dshHome(options.env ?? process.env)} — install it first, or pass the directory or .tgz you want audited.`,
+      );
+    }
+    return {
+      source: {
+        kind: 'installed',
+        value: source,
+        stagedPath: installed.path,
+        ...(installed.profile !== undefined ? { profile: installed.profile } : {}),
+        linked: installed.linked,
+      },
+      staged: loadDirectory(installed.path, limits),
+      resolution: installed,
+    };
   }
   if (stats.isDirectory()) {
     return { source: { kind: 'directory', value: source, stagedPath: absolute }, staged: loadDirectory(absolute, limits) };
@@ -165,7 +200,12 @@ function runLineRules(extraction: Extraction): Finding[] {
         findings.push({
           id: rule.id,
           category: rule.category,
-          severity: rule.severity,
+          // A rule whose evidence is a literal caps itself inside generated
+          // output, where a minifier has inlined literals from every dependency.
+          severity:
+            file.generated === true && rule.generatedFileSeverity !== undefined
+              ? worstOf(rule.severity, rule.generatedFileSeverity)
+              : rule.severity,
           title: rule.title,
           detail: rule.detail,
           remediation: rule.remediation,
@@ -221,7 +261,12 @@ function buildRuleInput(extraction: Extraction, lineFindings: Finding[]): RuleIn
   };
   return {
     ...(extraction.manifest !== undefined ? { manifest: extraction.manifest } : {}),
-    installScripts: extraction.installScripts,
+    // Correlation rules are asking "does installing this run code that also
+    // reaches the network?", so they see only the hooks that actually run on the
+    // installing machine. `prepack` and friends run in the maintainer's checkout
+    // and pairing them with a sink proves nothing. The full list still reaches
+    // the report through `ScanResult.installScripts`.
+    installScripts: extraction.installScripts.filter((script) => script.installTime),
     capabilities: extraction.capabilities,
     files: extraction.files,
     lineFindings: lineFindings.map((finding) => ({
@@ -317,7 +362,7 @@ export interface InstallPolicy {
  * @returns the scan result.
  */
 export async function auditSource(source: string, options: AuditOptions = {}): Promise<ScanResult> {
-  const { source: descriptor, staged } = await resolveSource(source, options);
+  const { source: descriptor, staged, resolution } = await resolveSource(source, options);
   const extraction = extract(staged);
   const lineFindings = runLineRules(extraction);
   const packageFindings = runPackageRules(buildRuleInput(extraction, lineFindings));
@@ -326,6 +371,20 @@ export async function auditSource(source: string, options: AuditOptions = {}): P
   const notes = [...extraction.notes];
   if (options.allowFetch === true) notes.push('outbound fetching was permitted for this audit');
   if (scored.forcedBy !== undefined) notes.push(`grade forced to D by a critical finding: ${scored.forcedBy}`);
+  // Say plainly which copy was audited. An installed plugin can be a symlink to a
+  // live checkout or a frozen tarball, and a grade means different things for
+  // each: the linked one can change after you read this report.
+  if (resolution !== undefined) {
+    notes.push(
+      `resolved the installed package "${descriptor.value}" to ${resolution.path}${resolution.profile !== undefined ? ` (profile: ${resolution.profile})` : ''}`,
+    );
+    if (resolution.linked) {
+      notes.push('the installed entry is a symlink: this audits live source that can change, not a frozen artifact');
+    }
+    if (resolution.alsoFound.length > 0) {
+      notes.push(`the same package is also installed at ${resolution.alsoFound.join(', ')}; this report covers only the copy above`);
+    }
+  }
   const ceiling = options.blockAtOrBelow ?? 'D';
   if (atOrBelow(scored.grade, ceiling)) {
     notes.push(`grade ${scored.grade} is at or below the install floor ${ceiling}: this source is refused`);

@@ -42,7 +42,7 @@ function collectSpecifiers(dir, into = new Set()) {
     }
     if (!absolute.endsWith('.js')) continue;
     const source = readFileSync(absolute, 'utf8');
-    for (const match of source.matchAll(/(?:^|[^\w.])(?:import|export)[^;]*?from\s*['"]([^'"]+)['"]/g)) into.add(match[1]);
+    for (const match of source.matchAll(/^[ \t]*(?:import|export)\b[^;]*?\bfrom\s*['"]([^'"]+)['"]/gm)) into.add(match[1]);
     for (const match of source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)) into.add(match[1]);
   }
   return into;

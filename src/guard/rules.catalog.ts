@@ -316,8 +316,18 @@ const RE_REBINDING_HOST = /(?<![\w-])(?:nip\.io|sslip\.io|xip\.io|rbndr\.us|1u\.
  */
 const RE_BRACKET_URL = /\b[a-z][a-z0-9+.-]{1,15}:\/\/\[[0-9A-Fa-f:.]{2,45}\](?::\d{1,5})?/gi;
 
-/** A scheme that never belongs in a model-issued fetch, with or without `//`. */
-const RE_DANGEROUS_SCHEME_TEXT = /\b(?:file|gopher|dict|ldap|expect|tftp|jar|netdoc|data|blob):[^\s"'`]/i;
+/**
+ * A scheme that never belongs in a model-issued fetch, with or without `//`.
+ *
+ * The character after the colon has to actually start a URL. Accepting any
+ * non-space character made this match an ordinary *log label*: a statement that
+ * prints the word `file:` and then draws a comma read as a `file:` URL, and it
+ * blocked a read-only diagnostic at `block` severity. `data:` and `blob:` are
+ * matched separately because their payloads are MIME-typed rather than
+ * slash-rooted.
+ */
+const RE_DANGEROUS_SCHEME_TEXT =
+  /\b(?:file|gopher|dict|ldap|expect|tftp|jar|netdoc):\/|\b(?:data|blob):(?=[a-z-]+\/|;base64,|https?:)/i;
 
 /** Privilege-raising commands and syscall-adjacent mechanisms. */
 const RE_PRIV_ESCALATION =
@@ -373,8 +383,18 @@ const RE_ARCHIVE_HOME =
 /** Screen-scrapers that encode a local file before sending it. */
 const RE_ENCODER = /\b(?:base64|xxd|openssl\s+enc|gzip|bzip2|zstd)\b|\bto\s*base64\b|\.toString\(\s*['"]base64['"]\s*\)/;
 
-/** DNS lookups carrying an encoded label. */
-const RE_DNS_TUNNEL = /\b(?:dig|nslookup|host|drill|kdig)\b[^;|&\n]{0,80}?\b[A-Za-z0-9+/=_-]{40,}\b/;
+/**
+ * DNS lookups carrying an encoded label.
+ *
+ * The label class deliberately **excludes `/`**, which is what a base64 label
+ * never contains and what every filesystem path is full of. Including it made
+ * this rule match any path within 80 characters of the word `host` — a bare
+ * `host` key, a variable called `hostname`, the phrase "internal-host" — so a
+ * read-only diagnostic was blocked at `block` severity because it named a file.
+ * Excluding `/` leaves real tunnelling labels (`aGVsbG8gd29ybGQ.evil.example`)
+ * matching, since those are slash-free by construction.
+ */
+const RE_DNS_TUNNEL = /\b(?:dig|nslookup|host|drill|kdig)\b[^;|&\n]{0,80}?\b[A-Za-z0-9+=_-]{40,}\b/;
 
 /** Live credential environment variables, referenced by name. */
 const RE_SECRET_ENV_VAR = new RegExp(AWS_CREDENTIAL_VARS);

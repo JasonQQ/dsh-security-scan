@@ -107,20 +107,30 @@ export function renderReport(result: ScanResult): string {
   const domains = uniqueCapabilities(result.capabilities.domains);
   const envVars = uniqueCapabilities(result.capabilities.envVars);
 
-  if (result.installScripts.length > 0) {
-    lines.push('## Install-time scripts');
-    lines.push('');
-    for (const script of result.installScripts.slice(0, REPORT_ROW_CAP)) {
+  const installTime = result.installScripts.filter((script) => script.installTime);
+  const publishTime = result.installScripts.filter((script) => !script.installTime);
+
+  lines.push('## Install-time scripts');
+  lines.push('');
+  if (installTime.length === 0) {
+    lines.push('None declared. Nothing in this package runs automatically on the machine that installs it.');
+  } else {
+    for (const script of installTime.slice(0, REPORT_ROW_CAP)) {
       lines.push(`- \`${script.hook}\` (\`${script.file}\`): \`${script.command}\``);
     }
-    if (result.installScripts.length > REPORT_ROW_CAP) {
-      lines.push(`- … and ${result.installScripts.length - REPORT_ROW_CAP} more`);
+    if (installTime.length > REPORT_ROW_CAP) {
+      lines.push(`- … and ${installTime.length - REPORT_ROW_CAP} more`);
     }
+  }
+  lines.push('');
+  if (publishTime.length > 0) {
+    // Listed separately because it is a different risk: these run in the
+    // maintainer's checkout when packing or publishing, never on a user's machine.
+    lines.push('Publish-time hooks (run when the maintainer packs or publishes, not on install):');
     lines.push('');
-  } else {
-    lines.push('## Install-time scripts');
-    lines.push('');
-    lines.push('None declared. Nothing in this package runs automatically at install time.');
+    for (const script of publishTime.slice(0, REPORT_ROW_CAP)) {
+      lines.push(`- \`${script.hook}\`: \`${script.command}\``);
+    }
     lines.push('');
   }
 

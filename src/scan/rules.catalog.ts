@@ -230,6 +230,22 @@ const MANIFEST_METADATA_KEYS: readonly string[] = [
   'type',
   'private',
   'packageManager',
+  // Keys that appear *inside* the metadata objects above rather than as
+  // dependency names. Without these, `"url": "git+https://github.com/…"` inside
+  // `repository` is read as a URL-resolved dependency, which graded every plugin
+  // that publishes a repository link as shipping an unpinned dependency.
+  'url',
+  'email',
+  'directory',
+  'workspace',
+  'registry',
+  'tag',
+  'integrity',
+  'resolved',
+  'from',
+  'dist',
+  'shasum',
+  'tarball',
   'dependencies',
   'devDependencies',
   'peerDependencies',
@@ -478,6 +494,11 @@ function anchorsFor(files: readonly FileInfo[], match: (line: string, file: File
   const out: Evidence[] = [];
   for (const file of files) {
     if (file.decodeError !== undefined) continue;
+    // Build-tool configuration runs in the maintainer's checkout, never on the
+    // installing machine, so it cannot anchor a claim about what installing this
+    // package does. `tsdown.config.ts` serializing `process.env` is ordinary
+    // tooling; pairing it with a network sink anywhere else proved nothing.
+    if (file.devOnly === true) continue;
     for (let index = 0; index < file.lines.length; index += 1) {
       const line = file.lines[index];
       if (line === undefined || line.length === 0) continue;
@@ -814,6 +835,7 @@ export const LINE_RULES: LineRule[] = [
   },
   {
     id: 'cred.credential-path-mention',
+    generatedFileSeverity: 'low',
     category: 'credential-access',
     severity: 'low',
     title: 'Credential path appears without being read',
@@ -899,6 +921,7 @@ export const LINE_RULES: LineRule[] = [
   },
   {
     id: 'obf.decoded-payload-literal',
+    generatedFileSeverity: 'low',
     category: 'obfuscation',
     inspectComments: true,
     severity: 'high',
@@ -910,10 +933,26 @@ export const LINE_RULES: LineRule[] = [
     test: fromPredicate((line, file) => {
       if (isCommentLine(line, file)) return false;
       if (/(?:atob|unescape|decodeURIComponent|Buffer\.from)\s*\(\s*(['"`])[^'"`]{40,}\1/.test(line)) return safeClip(line, 160);
-      const escapes = line.match(/\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|%u[0-9a-f]{4}/gi);
-      if (escapes !== null && escapes.length >= 8) return safeClip(line, 160);
+      // Escape density, counting only escapes that *hide ASCII*. `\x41` always
+      // does, and `\u0065` is the same trick in long form. `\u2014` and `\u53EF`
+      // do not: escaping non-ASCII is what a build tool does to emit portable
+      // output, and counting those graded a plugin's own localized UI strings as
+      // an obfuscated payload.
+      const escapes = line.match(/\\(?:x[0-9a-f]{2}|u[0-9a-f]{4})|%u[0-9a-f]{4}/gi) ?? [];
+      const hidingAscii = escapes.filter((escape) => {
+        const hex = /[0-9a-f]{4}$/i.exec(escape)?.[0];
+        return hex === undefined || Number.parseInt(hex, 16) <= 0x7f;
+      });
+      if (hidingAscii.length >= 8) return safeClip(line, 160);
       for (const literal of stringLiterals(line)) {
-        if (literal.value.length >= 200 && shannonEntropy(literal.value) > 4.5) return safeClip(literal.raw, 160);
+        const value = literal.value;
+        if (value.length < 200) continue;
+        // Encoded blobs carry no whitespace; prose does. Without this check a
+        // long English sentence clears the entropy bar and is reported as a
+        // payload — which is how an ordinary error message became a critical
+        // obfuscation finding on a readable plugin.
+        if (/\s/.test(value)) continue;
+        if (shannonEntropy(value) > 4.5) return safeClip(literal.raw, 160);
       }
       return false;
     }),
@@ -937,6 +976,7 @@ export const LINE_RULES: LineRule[] = [
   },
   {
     id: 'obf.obfuscated-identifier',
+    generatedFileSeverity: 'info',
     category: 'obfuscation',
     inspectComments: true,
     severity: 'medium',
@@ -957,6 +997,7 @@ export const LINE_RULES: LineRule[] = [
   },
   {
     id: 'obf.long-minified-line',
+    generatedFileSeverity: 'info',
     category: 'obfuscation',
     inspectComments: true,
     severity: 'medium',
@@ -1513,6 +1554,7 @@ export const LINE_RULES: LineRule[] = [
   },
   {
     id: 'prompt.embedded-instruction-string',
+    generatedFileSeverity: 'low',
     category: 'prompt-injection',
     inspectComments: true,
     severity: 'high',
