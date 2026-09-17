@@ -109,26 +109,108 @@ const NETWORK_VERBS: readonly string[] = [
   'socket.connect',
 ];
 
-/** Fragments that indicate the surrounding text writes something. */
-const WRITE_TOKENS: readonly string[] = [
-  '>>',
-  '>',
-  'tee ',
-  'cp ',
-  'mv ',
-  'install ',
-  'echo ',
-  'printf ',
-  'touch ',
+/**
+ * Mutating commands whose argument is the thing being mutated.
+ *
+ * Used with {@link hasWriteIntentNear}, which requires the command to be aimed
+ * *at* the path rather than merely present nearby.
+ */
+const WRITE_COMMANDS: readonly string[] = [
+  'rm',
+  'rmdir',
+  'mv',
+  'cp',
+  'chmod',
+  'chown',
   'truncate',
-  'sed -i',
-  'chmod ',
-  'chown ',
+  'touch',
+  'tee',
+  'shred',
+  'ln',
+  'sed',
+  'unlink',
+  'trash',
+];
+
+/** Mutating APIs whose argument is the target path. */
+const WRITE_APIS: readonly string[] = [
+  'writeFileSync',
   'writeFile',
+  'appendFileSync',
   'appendFile',
   'createWriteStream',
+  'unlinkSync',
   'unlink',
-  'rm ',
+  'rmSync',
+  'rmdirSync',
+  'truncateSync',
+  'chmodSync',
+  'chownSync',
+  'renameSync',
+  'copyFileSync',
+  'mkdirSync',
+  'openSync',
+  'utimesSync',
+];
+
+/**
+ * Commands that read or ship a file's contents.
+ *
+ * Used with {@link hasReadIntentNear} so that naming a credential path is only a
+ * finding when something actually reads it or sends it somewhere.
+ */
+const READ_COMMANDS: readonly string[] = [
+  'cat',
+  'bat',
+  'less',
+  'more',
+  'head',
+  'tail',
+  'tac',
+  'nl',
+  'xxd',
+  'od',
+  'strings',
+  'base64',
+  'grep',
+  'rg',
+  'egrep',
+  'awk',
+  'cut',
+  'sort',
+  'uniq',
+  'cp',
+  'scp',
+  'rsync',
+  'tar',
+  'zip',
+  'gzip',
+  'curl',
+  'wget',
+  'nc',
+  'ncat',
+  'socat',
+  'openssl',
+  'python',
+  'python3',
+  'node',
+  'get-content',
+  'gc',
+  'type',
+];
+
+/** Reading APIs whose argument is the file. */
+const READ_APIS: readonly string[] = [
+  'readFileSync',
+  'readFile',
+  'createReadStream',
+  'readdirSync',
+  'readdir',
+  'statSync',
+  'openSync',
+  'readSync',
+  'copyFileSync',
+  'cpSync',
 ];
 
 /** Shell-rc files an append would persist code into. */
@@ -196,8 +278,18 @@ const RE_OBFUSCATED_IPV4 = /(?<![\w.])(?:0x[0-9a-f]{1,8}|[0-9a-f]{8}|0[0-7]{2,}|
 // ---------------------------------------------------------------------------
 
 /** `rm -rf /`, `/*`, `~`, `$HOME` — the canonical mass-deletion spellings. */
+/**
+ * `rm -rf /`, `/*`, `~`, `~/`, `~/*`, `$HOME`, `$HOME/*` — the mass-deletion
+ * spellings.
+ *
+ * The home-directory alternatives require the `~` or `$HOME` to be the *whole*
+ * target, or to be followed by `/*`. Accepting a bare `/` lookahead made
+ * `rm ~/.dsh/credentials.yaml` match `rm ~`: deleting one named file under the
+ * home directory is an ordinary action, not a deletion of the home directory,
+ * and reporting it as the latter blocks work for no gain.
+ */
 const RE_RM_ROOT =
-  /\brm\b(?:\s+-[^\s]+)*\s+(?:\/(?=\s|$|\/|;|&|\|)|\/\*|~(?=\/|\s|$|;|&)|\$HOME(?=\s|$|;|&|\/)|\$\{HOME\})/;
+  /\brm\b(?:\s+-[^\s]+)*\s+(?:\/(?=\s|$|\/|;|&|\|)|\/\*|~(?=\/?(?:[\s; &|*]|$))|\$HOME(?=\/?(?:[\s; &|*]|$))|\$\{HOME\}(?=\/?(?:[\s; &|*]|$)))/;
 
 /** `rm -rf *`, `rm -rf .`, `rm -rf ..`, `rm -rf $UNSET` — a target the shell resolves. */
 const RE_RM_BROAD =
@@ -535,15 +627,63 @@ function viewHas(views: readonly string[], re: RegExp): boolean {
 }
 
 /** Whether a write-shaped token sits within `window` characters of `fragment`. */
-function hasWriteIntentNear(view: string, fragment: string, window = 80): boolean {
-  let index = view.indexOf(fragment);
-  while (index !== -1) {
-    const start = Math.max(0, index - window);
-    const around = view.slice(start, index + fragment.length + window);
-    if (WRITE_TOKENS.some((token) => around.includes(token))) return true;
-    index = view.indexOf(fragment, index + fragment.length);
-  }
-  return false;
+/**
+ * Whether the text *aims* a mutation at `fragment`.
+ *
+ * Direction is the whole point. The first version asked whether any write-ish
+ * token appeared within ±80 characters, and `echo ` is such a token — so a
+ * command that printed a heading shortly before naming a path was read as
+ * writing to that path, and a read-only diagnostic was flagged as tampering with
+ * harness state. Intent has to point at the target:
+ *
+ * - a redirection whose destination is the fragment (`> path`, `| tee path`)
+ * - a mutating command whose argument is the fragment (`rm path`, `chmod path`)
+ * - a mutating API called with the fragment
+ *
+ * @param view - one canonical view of the call.
+ * @param fragment - the path fragment that already matched.
+ * @returns true when a mutation targets it.
+ */
+function hasWriteIntentNear(view: string, fragment: string): boolean {
+  const target = escapeRe(fragment);
+  const commands = WRITE_COMMANDS.join('|');
+  const apis = WRITE_APIS.join('|');
+  return [
+    // `> path`, `>> ~/path`, `| tee -a $HOME/path`. The prefix run is path-characters
+    // only and stops at a shell separator, so a redirect cannot "reach" a fragment
+    // that appears later in an unrelated command.
+    new RegExp(`(?:>>?|\\|\\s*tee\\s+(?:-a\\s+)?)\\s*['"]?[^\\s;|&'"\`]{0,80}${target}`),
+    // `rm path`, `sudo chmod 000 path`, `sed -i … path`
+    new RegExp(`(?:^|[;&|(]\\s*)(?:sudo\\s+)?(?:${commands})\\b[^;|&\\n]{0,60}?['"]?${target}`),
+    // `writeFileSync(path, …)`, `fs.appendFile(path, …)`
+    new RegExp(`\\b(?:${apis})\\s*\\([^)]{0,80}?${target}`),
+  ].some((re) => re.test(view));
+}
+
+/**
+ * Whether the text *aims* a read or an upload at `fragment`.
+ *
+ * The mirror of {@link hasWriteIntentNear}, and the same lesson: naming a
+ * credential path is worth a finding when something reads it or ships it, and is
+ * noise when the path is merely mentioned — in a test fixture, a comment, or an
+ * argument to something that never opens it.
+ *
+ * @param view - one canonical view of the call.
+ * @param fragment - the credential-ish fragment that already matched.
+ * @returns true when a read or egress targets it.
+ */
+function hasReadIntentNear(view: string, fragment: string): boolean {
+  const target = escapeRe(fragment);
+  const commands = READ_COMMANDS.join('|');
+  const apis = READ_APIS.join('|');
+  return [
+    // `cat path`, `grep -n x path`, `curl -d @path`
+    new RegExp(`(?:^|[;&|(]\\s*)(?:sudo\\s+)?(?:${commands})\\b[^;|&\\n]{0,60}?['"]?${target}`),
+    // `readFileSync(path)`, `fs.createReadStream(path)`
+    new RegExp(`\\b(?:${apis})\\s*\\([^)]{0,80}?${target}`),
+    // `-d@path`, `--data-binary @path`, `-T path`
+    new RegExp(`(?:@|--data-binary\\s+@?|-T\\s+|--upload-file\\s+)['"]?${target}`),
+  ].some((re) => re.test(view));
 }
 
 /** Whether a fragment appears at all, case-insensitively. */
@@ -1153,9 +1293,9 @@ export const GUARD_RULES: GuardRule[] = [
     category: 'credential-access',
     severity: 'high',
     action: 'ask',
-    title: 'shell command referencing a credential store',
+    title: 'shell command reading or shipping a credential store',
     detail:
-      'The command text names a private key, cloud credential file, browser store, shell history or system account database. Most such commands are reads that end up in the transcript; some are copies that end up somewhere else.',
+      'The command reads, copies or uploads a private key, cloud credential file, browser store, shell history or system account database. The contents end up in the transcript, in a copy, or on the wire.',
     remediation:
       'Use the tool that owns the credential (`aws configure`, `gh auth login`, `ssh-keygen -y`) rather than moving the file, and never commit the value into the session.',
     tools: ['bash', 'run_code'],
@@ -1163,10 +1303,15 @@ export const GUARD_RULES: GuardRule[] = [
       for (const view of ctx.views) {
         for (const fragment of ALL_CREDENTIAL_PATHS) {
           if (!hasFragment(view, fragment)) continue;
+          // Naming a credential path is only a finding when something reads it or
+          // sends it. A bare mention is a test fixture, a comment, or an argument
+          // to a command that never opens it — and treating those as credential
+          // access filled the report with noise.
+          if (!hasReadIntentNear(view, fragment)) continue;
           const family = credentialFamily(fragment) ?? 'credential';
           return {
             matched: safeClip(view, MATCH_LIMIT),
-            detail: `The command references the \`${family}\` credential family (fragment \`${fragment}\`).`,
+            detail: `The command reads or ships the \`${family}\` credential family (fragment \`${fragment}\`).`,
             severity: family === 'system' || family === 'shell' ? 'medium' : 'high',
           };
         }

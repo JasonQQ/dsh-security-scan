@@ -16,7 +16,18 @@ export const CREDENTIAL_PATHS = {
   ssh: ['.ssh/id_rsa', '.ssh/id_ed25519', '.ssh/id_ecdsa', '.ssh/id_dsa', '.ssh/authorized_keys', '.ssh/config', '.ssh/known_hosts'],
   cloud: ['.aws/credentials', '.aws/config', '.config/gcloud', '.azure/accessTokens.json', '.kube/config', '.docker/config.json', '.netrc', '.pgpass'],
   registry: ['.npmrc', '.yarnrc', '.pypirc', '.gem/credentials', '.cargo/credentials', '.composer/auth.json'],
-  dsh: ['.dsh/credentials.yaml', '.dsh/settings.yaml', '.dsh/sessions', '.dsh/profiles', '.dsh/storages', 'credentials.yaml'],
+  /**
+   * DSH's own secret-bearing files.
+   *
+   * `.dsh/profiles` and `.dsh/storages` are deliberately **absent**. They are
+   * state directories — profiles hold plugin installs, storages hold domain data
+   * — not credential stores, and listing them made every command that touched an
+   * installed plugin look like credential access. Reading an installed plugin is
+   * routine: it is what `/security audit <name>` does. Writes to either directory
+   * are still caught, by the guard's harness-state rules, which own the state
+   * question independently of this table.
+   */
+  dsh: ['.dsh/credentials.yaml', '.dsh/settings.yaml', '.dsh/sessions', 'credentials.yaml'],
   dotenv: ['.env', '.env.local', '.env.production', '.env.development', '.envrc'],
   browser: [
     'Login Data',
