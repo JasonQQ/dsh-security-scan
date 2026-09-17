@@ -184,14 +184,24 @@ export function apply(ctx: HarnessContext, rawConfig?: unknown): void {
           const { decision, audited } = await enforceInstallAttempt(attempt, registry, config);
           const specs = attempt.specs.length > 0 ? attempt.specs.join(', ') : 'declared dependencies';
           if (decision.action === 'allow') {
+            // An overridden refusal is recorded as its own event, not folded into
+            // the ordinary allow path: "this was audited, failed, and a human had
+            // already said yes" is exactly the fact a reader of the log needs.
+            const override = decision.override;
             log.append({
               kind: 'guard',
-              event: 'install-allowed',
-              summary: `${attempt.manager} install of ${specs} — allowed by the install policy`,
+              event: override === undefined ? 'install-allowed' : 'install-allowed-override',
+              summary:
+                override === undefined
+                  ? `${attempt.manager} install of ${specs} — allowed by the install policy`
+                  : `${attempt.manager} install of ${specs} — REFUSED grade ${override.grade}, allowed because install.allow lists "${override.entry}"`,
               data: {
                 tool: exec.name,
                 manager: attempt.manager,
                 specs: attempt.specs,
+                ...(override !== undefined
+                  ? { override: { entry: override.entry, grade: override.grade, digest: override.digest ?? null } }
+                  : {}),
                 ...(audited !== undefined ? { grade: audited.grade, score: audited.score, digest: audited.digest } : {}),
               },
             });

@@ -17,6 +17,8 @@ on npm and unlisted in the marketplace at the time of the rename.
 - Line rules are tested against several spellings of each line, including concatenation-joined, so a rule written against `~/.ssh/id_rsa` matches code that builds it from three literals.
 - Scoring: per-severity weights with diminishing returns for repetition, an escalation for findings spread across independent categories, and any `critical` finding pins the grade to `D` regardless of the arithmetic.
 - A local source named by an install command is audited inline by the install check, so the refusal is about the bytes that exist rather than a name.
+- Comment scoping is per rule: a line rule skips lines with no executable content unless it sets `inspectComments`, which only the obfuscation and prompt-injection families do. Comment bodies are found by a stateful per-file mask, so a JSDoc block or a block comment without leading asterisks is recognised as a whole, and `#` is a private-member sigil in JavaScript rather than a comment marker. Prose files are never treated as commented — a Markdown `#` is a heading, and an instruction in a `SKILL.md` is exactly what the scanner should find.
+- `install.allow` makes a refusal overridable by package name or `sha256:` content digest. A match permits the install and is recorded as an `install-allowed-override` event carrying the overridden grade. Without it, `blockAtOrBelow` being a floor and `D` being the worst grade meant a `D` verdict could never be accepted, which also blocked re-installing this plugin by local path.
 
 **Layer two — runtime guard**
 
@@ -48,7 +50,7 @@ on npm and unlisted in the marketplace at the time of the rename.
 
 **Testing**
 
-- 143 unit and integration tests. Guard and scanner behavior is asserted by decision rather than by rule id, so a rule rename does not break the suite and a new rule covering an existing case still has to keep the decision.
+- 164 unit and integration tests. Guard and scanner behavior is asserted by decision rather than by rule id, so a rule rename does not break the suite and a new rule covering an existing case still has to keep the decision.
 - Every tampering shape the log claims to detect is tested by editing the file the way an attacker would.
 - `npm run smoke` runs the whole runtime catalog over 23 benign calls (which must stay clean) and 42 dangerous calls (which must be caught at or above the expected level), failing on any false positive.
 - Malicious fixtures are generated at run time rather than committed.

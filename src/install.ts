@@ -18,10 +18,9 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-import type { Grade } from './types.js';
+import type { Grade, ScanResult } from './types.js';
 import type { PluginConfig } from './config.js';
-import type { AuditRegistry } from './scan/registry.js';
-import { type ScanResult, } from './types.js';
+import { type AuditRegistry, normalizeSpec } from './scan/registry.js';
 import { auditSource } from './scan/engine.js';
 import { renderSummary } from './scan/report.js';
 
@@ -40,6 +39,70 @@ export interface InstallDecision {
   action: 'allow' | 'ask' | 'block';
   /** Why, phrased for the model that issued the command. */
   reason?: string;
+  /**
+   * Set when the install would have been refused but `install.allow` matched.
+   *
+   * Carried out to the caller rather than logged here, because logging is the
+   * plugin's job and this module stays free of I/O so it can be tested directly.
+   * The caller records it, which is what makes the override reviewable.
+   */
+  override?: {
+    /** The `install.allow` entry that matched. */
+    entry: string;
+    /** The grade that entry overrode. */
+    grade: Grade;
+    /** Digest of the audited content, when the audit produced one. */
+    digest?: string;
+  };
+}
+
+/** Normalized digest form, so `sha256:<hex>` and a bare hex digest compare equal. */
+function normalizeDigest(value: string): string | undefined {
+  const match = /^(?:sha256:)?([0-9a-f]{64})$/i.exec(value.trim());
+  return match === undefined || match === null ? undefined : (match[1] as string).toLowerCase();
+}
+
+/**
+ * Find the `install.allow` entry that permits a source, if any.
+ *
+ * An entry matches either the source's identity (package name or resolved path,
+ * compared through the same normalization the audit registry uses) or the digest
+ * of the exact bytes that were audited. The digest form is the stronger claim:
+ * it permits one artifact rather than one name.
+ *
+ * @param allow - the configured entries.
+ * @param spec - the spec being installed.
+ * @param digest - the digest of the audited content, when one is known.
+ * @returns the matching entry as configured, or `undefined`.
+ */
+export function matchAllowEntry(
+  allow: readonly string[],
+  spec: string | readonly string[],
+  digest?: string,
+): string | undefined {
+  // A source has more than one identity, and they differ by how it arrived. A
+  // registry install names a package; a local install names a path whose manifest
+  // declares a package name; both have a digest. Accepting only one of those
+  // would mean `install.allow: [my-plugin]` silently failed to match
+  // `dsh plugin add ./my-plugin`, which is the same plugin.
+  const candidates = (typeof spec === 'string' ? [spec] : spec)
+    .map((candidate) => normalizeSpec(candidate))
+    .filter((candidate) => candidate.length > 0);
+  const normalizedDigest = digest === undefined ? undefined : normalizeDigest(digest);
+  for (const entry of allow) {
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) continue;
+    const entryDigest = normalizeDigest(trimmed);
+    if (entryDigest !== undefined) {
+      // A digest entry only ever matches a digest, never a name: comparing a
+      // digest-shaped string against a package name would be meaningless.
+      if (normalizedDigest !== undefined && entryDigest === normalizedDigest) return trimmed;
+      continue;
+    }
+    const normalizedEntry = normalizeSpec(trimmed);
+    if (normalizedEntry.length > 0 && candidates.includes(normalizedEntry)) return trimmed;
+  }
+  return undefined;
 }
 
 /**
@@ -184,7 +247,8 @@ function refusalReason(result: ScanResult, why: string): string {
     '',
     renderSummary(result),
     '',
-    'Run `security_scan_audit` on the source to see the full report, or change `install.blockAtOrBelow` if you have read the findings and accept the risk.',
+    'Run `security_scan_audit` on the source to see the full report.',
+    'If you have read the findings and accept the risk, add the package name or the content digest above to `install.allow` — the override is permitted and recorded in the audit log rather than unavailable, because a gate that cannot be overridden is one that gets uninstalled instead of argued with.',
   ].join('\n');
 }
 
@@ -225,6 +289,19 @@ export async function enforceInstallAttempt(
       registry.record(result);
       audited = result;
       if (result.blocked) {
+        // The path, the manifest's package name, and the digest are all
+        // identities of the same artifact; an allow entry may name any of them.
+        const entry = matchAllowEntry(
+          config.install.allow,
+          [local, result.manifest?.name ?? ''],
+          result.digest,
+        );
+        if (entry !== undefined) {
+          return {
+            decision: { action: 'allow', override: { entry, grade: result.grade, digest: result.digest } },
+            audited: result,
+          };
+        }
         return {
           decision: { action: 'block', reason: refusalReason(result, `${spec} scored grade ${result.grade} (${result.score}/100), at or below the refusal floor ${floor}`) },
           audited: result,
@@ -235,6 +312,12 @@ export async function enforceInstallAttempt(
 
     const verdict = registry.verdictFor(spec, floor);
     if (verdict.kind === 'fail') {
+      const entry = matchAllowEntry(config.install.allow, spec, verdict.record.digest);
+      if (entry !== undefined) {
+        return {
+          decision: { action: 'allow', override: { entry, grade: verdict.record.grade, digest: verdict.record.digest } },
+        };
+      }
       return {
         decision: {
           action: 'block',

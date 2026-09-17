@@ -58,6 +58,20 @@ export interface LineRule {
   remediation: string;
   /** File kinds this rule is applied to. */
   scope: Scope[];
+  /**
+   * Whether this rule also inspects lines that carry no executable content.
+   *
+   * Defaults to `false`: comment text is a much weaker signal than code, and
+   * treating it as equal produces findings like "reads an SSH private key" for a
+   * JSDoc example — which is how a scanner ends up crying wolf at the plugins
+   * that document the paths they deliberately refuse to read.
+   *
+   * Set it to `true` only when the comment itself is the evidence. Two families
+   * do: obfuscation (a base64 blob parked in a comment is still a payload) and
+   * prompt-injection (hidden instructions live in prose and comments by
+   * definition).
+   */
+  inspectComments?: boolean;
   /** Inspect one line; return the offending excerpt(s) when it violates the rule. */
   test: (line: string, file: FileInfo) => string | string[] | undefined | null | false;
   /** Maximum findings this rule emits per file; defaults to {@link DEFAULT_PER_FILE_CAP}. */

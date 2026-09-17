@@ -26,6 +26,15 @@
  *   a signature — which is why the strongest findings in this catalog come from
  *   correlating weak ones.
  *
+ * **Comments.** A line rule skips lines that carry no executable content unless
+ * it sets `inspectComments` — which is why that flag appears on the obfuscation
+ * and prompt-injection rules and nowhere else. Those two families are the ones
+ * whose evidence legitimately lives inside a comment: a base64 blob parked in
+ * one is still a payload, and a hidden instruction is hidden precisely because
+ * it sits in prose. For every other family a comment is documentation, and
+ * reading it as behaviour is how a scanner ends up reporting its own JSDoc
+ * examples as credential theft.
+ *
  * Every rule id is namespaced `category.slug`, and the prefix always matches the
  * rule's `category` field, because the correlation layer selects evidence by
  * prefix (`input.fired('cred.')`, `input.evidenceFor('net.')`).
@@ -840,6 +849,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.dynamic-code-eval',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'critical',
     title: 'Evaluates code built at runtime',
     detail:
@@ -858,6 +868,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.dynamic-require',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'high',
     title: 'Requires or imports a computed module path',
     detail:
@@ -872,6 +883,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.base64-exec-chain',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'critical',
     title: 'Decodes base64 and executes the result',
     detail:
@@ -888,6 +900,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.decoded-payload-literal',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'high',
     title: 'Carries a decoded, escaped or high-entropy literal',
     detail:
@@ -908,6 +921,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.string-reassembly',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'high',
     title: 'Rebuilds a string from character codes or reversed fragments',
     detail:
@@ -924,6 +938,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.obfuscated-identifier',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'medium',
     title: 'Uses obfuscated identifiers or mixed-script names',
     detail:
@@ -943,6 +958,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'obf.long-minified-line',
     category: 'obfuscation',
+    inspectComments: true,
     severity: 'medium',
     title: 'Line is a single minified or machine-generated blob',
     detail:
@@ -1482,6 +1498,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'prompt.doc-instruction',
     category: 'prompt-injection',
+    inspectComments: true,
     severity: 'high',
     title: 'Documentation contains instructions aimed at a model',
     detail:
@@ -1497,6 +1514,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'prompt.embedded-instruction-string',
     category: 'prompt-injection',
+    inspectComments: true,
     severity: 'high',
     title: 'Source string carries instructions aimed at a model',
     detail:
@@ -1514,6 +1532,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'prompt.fake-system-message',
     category: 'prompt-injection',
+    inspectComments: true,
     severity: 'high',
     title: 'Text impersonates a system message',
     detail:
@@ -1525,6 +1544,7 @@ export const LINE_RULES: LineRule[] = [
   {
     id: 'prompt.concealed-instruction',
     category: 'prompt-injection',
+    inspectComments: true,
     severity: 'medium',
     title: 'Hides text in a comment or invisible characters',
     detail:

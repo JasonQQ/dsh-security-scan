@@ -246,8 +246,14 @@ export function hasDecodeSink(line: string): boolean {
 export function isCommentLine(line: string, file: FileInfo): boolean {
   const trimmed = line.trim();
   if (trimmed.length === 0) return true;
-  if (file.kind === 'code' || file.kind === 'script' || file.kind === 'config') {
+  if (file.kind === 'code') {
+    // `#` is deliberately absent here: JavaScript and TypeScript use it for
+    // private class members, so `#count = 0` is a statement, not a comment.
+    return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+  }
+  if (file.kind === 'script' || file.kind === 'config') {
     if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return true;
+    if (file.kind === 'config' && trimmed.startsWith(';')) return true;
     if (file.kind === 'script' && trimmed.startsWith('REM ')) return true;
   }
   return false;

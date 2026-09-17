@@ -20,6 +20,7 @@ import type { Evidence, Finding, Grade, ScanResult, ScanSource, Severity, Catego
 import { SEVERITY_ORDER } from '../types.js';
 import { safeClip } from '../util/text.js';
 import { type Extraction, extract, lineViews } from './extract.js';
+import { commentMask } from './comments.js';
 import { DEFAULT_LIMITS, type LoadLimits, type StagedSource, loadDirectory, loadTarball } from './load.js';
 import { LINE_RULES, PACKAGE_RULES } from './rules.catalog.js';
 import { type PackageHit, type RuleInput, DEFAULT_PER_FILE_CAP, isLineRule } from './rule-types.js';
@@ -124,12 +125,17 @@ async function resolveSource(source: string, options: AuditOptions): Promise<Res
 function runLineRules(extraction: Extraction): Finding[] {
   const findings: Finding[] = [];
   for (const rule of LINE_RULES) {
+    // Comments are skipped unless the rule opts in, because for most families a
+    // comment is documentation rather than behaviour — see `LineRule`.
+    const inspectComments = rule.inspectComments === true;
     for (const file of extraction.files) {
       if (file.decodeError !== undefined) continue;
       if (!rule.scope.includes('any') && !rule.scope.includes(file.kind)) continue;
+      const comments = commentMask(file);
       const cap = rule.perFileCap ?? DEFAULT_PER_FILE_CAP;
       let emitted = 0;
       for (let index = 0; index < file.lines.length && emitted < cap; index += 1) {
+        if (!inspectComments && comments[index] === true) continue;
         const raw = file.lines[index] as string;
         if (raw.length === 0 || raw.length > 100_000) continue;
         // A rule is tested against every spelling of the line, but a hit is

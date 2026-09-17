@@ -130,6 +130,7 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
             'leak.internal-ip': off
         install:
           blockAtOrBelow: D        # D | C | B | A — a grade at or below this is refused
+          allow: []                # names or sha256 digests permitted despite a failing grade
           fetch: false             # allow auditing an https .tgz by downloading it
           autoAudit: []            # paths audited when the plugin loads
         log:
@@ -139,6 +140,19 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
 ```
 
 **Start in `monitor` mode.** It records every decision without refusing anything, so you can read `/security status` and see which rules your own workflow trips before any call is blocked. A guard that blocks on its first day gets turned off on its first day.
+
+### Overriding a refusal
+
+A refusal is not final. `install.allow` takes package names or content digests, and a match turns a blocked install into an allowed one — recorded as its own `install-allowed-override` event carrying the grade it overrode, so the decision is visible in the log afterwards rather than merely possible.
+
+```yaml
+install:
+  allow:
+    - dsh-security-scan                      # by name
+    - sha256:3b039178431e4875eb942ce7babc…   # or by the exact bytes audited
+```
+
+The digest form is the stronger claim: it permits one artifact rather than one name. Without this key a `D` verdict could never be accepted at all — `blockAtOrBelow` is a floor and `D` is already the worst grade — and a gate that cannot be argued with is one that gets uninstalled instead.
 
 Two environment variables matter:
 
@@ -167,6 +181,8 @@ For a plugin whose job is to shrink supply-chain surface, shipping a dependency 
 Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
 
 - **A high grade is not a clean bill of health.** It means no rule fired over the bytes that were read. A partial scan or a binary payload is marked as such in the report.
+- **The scanner does not read comments as behaviour.** Most rules skip lines that carry no executable content, because documentation is not a capability; the obfuscation and prompt-injection families opt back in, because for them the comment *is* the evidence. The consequence in both directions is real: a credential path in a JSDoc example is not a finding, and a concealment character in a comment still is.
+- **It flags signature tables.** A security plugin necessarily ships the patterns it hunts for, so this plugin grades **its own source `D`** and would refuse its own install. That is the tool being consistent rather than broken, and `install.allow` is how you accept it deliberately.
 - **A registry install is audited by name, not by content.** The scanner cannot see what npm or git will serve. Audits expire for that reason, and the refusal text says so rather than implying a guarantee it cannot make.
 - **The chain proves tampering, not integrity.** Anyone holding both the log and the key can rebuild a consistent chain. The guarantee is that silent modification is impossible.
 - **`monitor` protects nothing.** It records. That is its purpose.
@@ -177,7 +193,7 @@ Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
 npm ci --ignore-scripts
 npm run typecheck
 npm run build
-npm test              # 143 unit + integration tests, then the adversarial smoke check
+npm test              # 164 unit + integration tests, then the adversarial smoke check
 npm run smoke         # guard rules only: benign calls must stay clean, dangerous ones must not
 npm run inventory     # the numbers quoted above, read from the code
 ```

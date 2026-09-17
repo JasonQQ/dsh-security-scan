@@ -33,6 +33,32 @@ A grade at or below `install.blockAtOrBelow` (default `D`) is refused. A local
 source named by an install command is audited **at the moment the install command
 runs**, so the refusal is about the actual bytes on disk.
 
+**A refusal is overridable, and the override is recorded.** `install.allow` takes
+package names or `sha256:` content digests; a match permits the install and is
+written to the audit log as an `install-allowed-override` event carrying the grade
+it overrode. This exists because `blockAtOrBelow` is a floor and `D` is already
+the worst grade, so without it a `D` verdict could never be accepted — and a gate
+that cannot be argued with is one that gets uninstalled instead of reviewed. The
+digest form is the stronger of the two: it permits one artifact rather than one
+name.
+
+**Comments are not read as behaviour.** A line rule skips lines that carry no
+executable content unless it opts in with `inspectComments`, which only the
+obfuscation and prompt-injection families do. So a credential path in a JSDoc
+example or a shell comment is not a finding, while a base64 blob or a bidi
+override character inside a comment still is. Prose files are never treated as
+commented: a Markdown `#` is a heading, and an instruction in a `SKILL.md` is the
+most important thing the scanner can find.
+
+This has a visible consequence the scanner does not hide: **it grades its own
+source `D`**, because a security plugin necessarily ships the patterns it hunts
+for — `'rm -rf /'`, the metadata IPs, `webhook.site` and the attack strings in its
+own test fixtures are all string literals in its source. That is the tool being
+consistent rather than broken, and `install.allow` is how a deliberate install is
+accepted. The specific class is reported as `destructive.shipped-command` and the
+`net.*` literal rules, so a reader can see it is the signature table rather than
+mistaking it for real capability.
+
 The audit reads the source into memory and **writes nothing to disk** — no
 unpacking, no temp tree. Tarballs are parsed in memory with a bounded reader that
 drops entries escaping the archive root rather than normalizing them.

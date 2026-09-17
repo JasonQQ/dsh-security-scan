@@ -46,6 +46,19 @@ export interface PluginConfig {
   install: {
     /** A grade at or below this value is refused. */
     blockAtOrBelow: Grade;
+    /**
+     * Sources explicitly permitted to install despite a failing grade.
+     *
+     * Each entry is either a package name (`@scope/name`) or a content digest
+     * (`sha256:<hex>`, or the bare 64-character digest). This is the deliberate,
+     * reviewable override: without it, `blockAtOrBelow` is a floor and `D` is the
+     * worst grade, so a `D` verdict could never be accepted — and a gate that
+     * cannot be overridden is one that gets uninstalled rather than argued with.
+     *
+     * Every use is recorded in the audit log with the grade it overrode, so the
+     * decision is visible after the fact rather than merely possible.
+     */
+    allow: string[];
     /** Whether an `https:` tarball URL may be downloaded for auditing. */
     fetch: boolean;
     /** Paths audited automatically when the plugin loads. */
@@ -74,6 +87,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   },
   install: {
     blockAtOrBelow: 'D',
+    allow: [],
     fetch: false,
     autoAudit: [],
   },
@@ -213,7 +227,7 @@ export function normalizeConfig(raw: unknown): PluginConfig {
   const installRaw = raw['install'];
   if (installRaw !== undefined && !isRecord(installRaw)) throw new ConfigError('install must be a mapping');
   const install = (installRaw ?? {}) as Record<string, unknown>;
-  rejectUnknown(install, ['blockAtOrBelow', 'fetch', 'autoAudit'], 'install.');
+  rejectUnknown(install, ['blockAtOrBelow', 'allow', 'fetch', 'autoAudit'], 'install.');
 
   const logRaw = raw['log'];
   if (logRaw !== undefined && !isRecord(logRaw)) throw new ConfigError('log must be a mapping');
@@ -238,6 +252,7 @@ export function normalizeConfig(raw: unknown): PluginConfig {
     },
     install: {
       blockAtOrBelow: readEnum(install['blockAtOrBelow'], ACCEPTED.grade, 'install.blockAtOrBelow', DEFAULT_CONFIG.install.blockAtOrBelow),
+      allow: readStringList(install['allow'], 'install.allow'),
       fetch: readBoolean(install['fetch'], 'install.fetch', DEFAULT_CONFIG.install.fetch),
       autoAudit: readStringList(install['autoAudit'], 'install.autoAudit'),
     },

@@ -129,6 +129,7 @@ dsh plugin add https://github.com/OWNER/dsh-security-scan
             'leak.internal-ip': off
         install:
           blockAtOrBelow: D        # D | C | B | A —— 评级等于或低于此值即拒绝
+          allow: []                # 允许放行的包名或 sha256 摘要（即便评级不合格）
           fetch: false             # 是否允许下载 https .tgz 进行体检
           autoAudit: []            # 插件加载时自动体检的路径
         log:
@@ -138,6 +139,19 @@ dsh plugin add https://github.com/OWNER/dsh-security-scan
 ```
 
 **请从 `monitor` 模式开始。** 它记录每一条决策但不拒绝任何调用，你可以先读 `/security status`，看清自己的日常工作流会撞上哪些规则，再开始拦。第一天就拦人的护栏，第一天就会被关掉。
+
+### 如何推翻一次拒绝
+
+拒绝不是终局。`install.allow` 接受包名或内容摘要，命中后会把被拦下的安装放行——并作为独立的 `install-allowed-override` 事件记录在案，带上被它推翻的那个评级。于是这个决定在事后可查，而不是仅仅「可能」。
+
+```yaml
+install:
+  allow:
+    - dsh-security-scan                      # 按包名
+    - sha256:3b039178431e4875eb942ce7babc…   # 或按被体检内容的确切字节
+```
+
+摘要形式是更强的声明：它放行的是某一个制品，而不是某一个名字。没有这个键，D 级判定就永远无法被接受——`blockAtOrBelow` 是下限，而 D 已经是最差的等级——而一个无法与之讲理的闸门，最终会被卸载。
 
 只有一个环境变量有意义：
 
@@ -165,6 +179,8 @@ Built output imports
 依赖它之前请先读 [`SECURITY.md`](SECURITY.md)。简要版：
 
 - **评分为 A 不等于安全。** 它只说明「读过的那些字节里没有规则命中」。部分扫描或二进制载荷会在报告里明确标注。
+- **扫描器不把注释当作行为。** 多数规则会跳过没有可执行内容的行，因为文档不是能力；混淆与提示注入两类则明确 opt-in，因为对它们来说注释**本身就是证据**。两个方向的后果都是真的：JSDoc 示例里的凭据路径不是发现，而注释里的隐藏字符仍然是。
+- **它会标记签名库。** 一个安全插件必然携带它要抓的那些模式，所以本插件给自己的源码判 **D**，也会拒绝安装自己。这是「言行一致」而不是坏掉了，`install.allow` 就是用来明确接受这一点的。
 - **从 registry 安装时，体检绑定的是名字而非内容。** 闸门看不到 npm 或 git 实际会送来的字节。审计记录因此有有效期，拒绝文案也会直说这一点，而不是暗示一个它给不出的保证。
 - **哈希链证明的是「被改过」，不是「没被改」。** 同时拿到日志和密钥的人可以重建一条自洽的链。它保证的是：静默修改不可能。
 - **`monitor` 模式不提供任何保护。** 它只记录。这就是它的用途。
@@ -175,7 +191,7 @@ Built output imports
 npm ci --ignore-scripts
 npm run typecheck
 npm run build
-npm test              # 143 个单元 + 集成测试，之后跑对抗性冒烟检查
+npm test              # 164 个单元 + 集成测试，之后跑对抗性冒烟检查
 npm run smoke         # 只跑护栏规则：正常调用必须干净，危险调用必须命中
 npm run inventory     # 打印上面引用的那些数字，直接从代码读
 ```

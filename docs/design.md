@@ -180,6 +180,52 @@ refuses on the real grade. For a registry spec the scanner can only bind a grade
 the name that was audited earlier, which is weaker, and the refusal text says so
 rather than implying a guarantee it cannot make.
 
+## A refusal has to be overridable
+
+The first version had no way to accept a `D` verdict. `install.blockAtOrBelow` is
+a *floor*, and `D` is already the worst grade, so no configuration could ever let
+a failing package through — and `install.allow` did not exist. The gate was
+absolute, which sounds good until you notice what it costs: it refused to let
+anyone reinstall **itself**, because a security plugin's own source is a signature
+table and grades `D`. A guard that cannot be argued with does not get argued
+with; it gets removed, and then it protects nothing.
+
+`install.allow` takes package names or `sha256:` content digests. The digest form
+is the stronger claim — one artifact rather than one name — and it is why the
+inline local audit carries its digest out to the caller. A match produces an
+`install-allowed-override` audit event recording the grade that was overridden,
+so the override is *reviewable* rather than merely *possible*. An override that
+leaves no trace would just be a hole with better manners.
+
+## Comments are documentation, except when they are the payload
+
+The first version fed every line to every rule. The effect showed up when the
+scanner was pointed at its own tree: it reported
+`fs.readFileSync(path.join(os.homedir(), '.ssh', 'id_rsa'))` as credential theft,
+and that line was a **JSDoc example explaining what the scanner refuses to do**.
+Every plugin that documents the paths it deliberately does not read would have
+been graded down for documenting them.
+
+So `LineRule.inspectComments` defaults to `false` and the engine skips lines the
+per-file mask says carry no executable content. The polarity is chosen for the
+common case, and two families opt back in because for them the comment *is* the
+evidence: obfuscation (a base64 blob parked in a comment is still a payload) and
+prompt-injection (`prompt.concealed-instruction` is literally titled "hides text
+in a comment").
+
+Two details make the mask worth having over a `startsWith('*')` check. It is
+**stateful per file**, so a block comment body with no leading asterisks is
+recognised — a per-line check cannot see it, because the body carries no marker of
+its own. And it is **kind-aware**: `#` is a comment in shell and YAML and a
+private-member sigil in JavaScript, so treating it uniformly would silently skip
+`#count = 0` as if it were documentation.
+
+The residual is honest and documented: the scanner still grades its own source
+`D`, because `'rm -rf /'` and the metadata IPs really are string literals in it.
+That is not a bug to whittle away with exemptions — it is the signature-table
+property, reported as `destructive.shipped-command` and the `net.*` literal rules
+so a reader can see exactly what class it is.
+
 ## Testing philosophy
 
 - The guard and the scanner are tested **by decision, not by rule id**. "A call

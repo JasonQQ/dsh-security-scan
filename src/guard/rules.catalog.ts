@@ -1969,9 +1969,9 @@ export const GUARD_RULES: GuardRule[] = [
     action: 'warn',
     title: 'package installed without a pre-install audit',
     detail:
-      'A package manager is adding a dependency or a DSH plugin. Install lifecycle scripts run with the developer\'s privileges, and this call has not been through the gate\'s pre-install audit, so nothing has inspected the tarball yet. This rule records the install; whether it is refused or escalated to a prompt is owned by the install policy (`guard.requireAuditForInstall`), which can consult the audit registry and this rule cannot.',
+      'A package manager is adding a dependency or a DSH plugin. Install lifecycle scripts run with the developer\'s privileges, and this call has not been through the plugin\'s pre-install audit, so nothing has inspected the tarball yet. This rule records the install; whether it is refused or escalated to a prompt is owned by the install policy (`guard.requireAuditForInstall`), which can consult the audit registry and this rule cannot.',
     remediation:
-      'Run the pre-install audit on the package first (`security_scan_audit`, or `/security audit <source>`), read the report, and only then let the install proceed. Set `guard.requireAuditForInstall: true` to make the gate demand that automatically.',
+      'Run the pre-install audit on the package first (`security_scan_audit`, or `/security audit <source>`), read the report, and only then let the install proceed. Set `guard.requireAuditForInstall: true` to make the plugin demand that automatically.',
     tools: ['bash', 'run_code'],
     test: (ctx) => {
       for (const view of ctx.views) {
