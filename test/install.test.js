@@ -25,7 +25,7 @@ after(() => {
 
 /** A throwaway directory. */
 function dir() {
-  const path = mkdtempSync(join(tmpdir(), 'gate-install-'));
+  const path = mkdtempSync(join(tmpdir(), 'scan-install-'));
   dirs.push(path);
   return path;
 }
@@ -106,7 +106,7 @@ test('an unknown package with requireAuditForInstall escalates to ask', async ()
   const attempt = detectInstallAttempt('dsh plugin add never-audited-package');
   const { decision } = await enforceInstallAttempt(attempt, registry, config({ guard: { requireAuditForInstall: true } }));
   assert.equal(decision.action, 'ask');
-  assert.match(decision.reason, /security_gate_audit/);
+  assert.match(decision.reason, /security_scan_audit/);
 });
 
 test('an unknown package with the default policy is allowed', async () => {

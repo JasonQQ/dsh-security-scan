@@ -12,12 +12,12 @@
  * - Expiring, so a grade does not outlive the artifact it described. Auditing
  *   `foo@1.2.3` from the registry today says nothing about what `foo@latest`
  *   resolves to tomorrow.
- * - Honest about its own limit: for a registry install the gate can only bind a
+ * - Honest about its own limit: for a registry install the scanner can only bind a
  *   grade to the *name* it audited, never to the bytes npm will serve. That
  *   limit is stated in `SECURITY.md` and repeated in the guard's refusal text
  *   rather than papered over with a false sense of verification.
  *
- * @module dsh-security-gate/scan/registry
+ * @module dsh-security-scan/scan/registry
  */
 
 import { isAbsolute, resolve } from 'node:path';

@@ -18,7 +18,7 @@
  * spelling, including a concatenation-joined form, and a finding is deduplicated
  * across spellings.
  *
- * @module dsh-security-gate/scan/extract
+ * @module dsh-security-scan/scan/extract
  */
 
 import { basename, extname } from 'node:path';

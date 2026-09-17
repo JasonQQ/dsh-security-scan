@@ -8,7 +8,7 @@
  * that a specific tool call *is* doing so right now. Keeping one table means a
  * pattern added for the pre-install audit is automatically enforced at runtime.
  *
- * @module dsh-security-gate/util/patterns
+ * @module dsh-security-scan/util/patterns
  */
 
 import type { Severity } from '../types.js';

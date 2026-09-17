@@ -1,7 +1,7 @@
 /**
  * Configuration: parsing, defaults, and validation.
  *
- * The gate validates its own config rather than declaring a schema object,
+ * The plugin validates its own config rather than declaring a schema object,
  * because the harness's schema library is one of the dependencies a zero-dep
  * plugin does not take. The trade is a little more code here for one concrete
  * gain: every rejection names the offending key *and* the accepted values, which
@@ -11,7 +11,7 @@
  * silently leaves the guard in its default state is exactly the failure a
  * security plugin must not have.
  *
- * @module dsh-security-gate/config
+ * @module dsh-security-scan/config
  */
 
 import { homedir } from 'node:os';
@@ -28,14 +28,14 @@ export type OutputMode = 'enforce' | 'monitor' | 'off';
 export type OutputRuleSetting = 'warn' | 'block' | 'off';
 
 /** The resolved configuration. */
-export interface GateConfig {
+export interface PluginConfig {
   guard: {
     mode: GuardMode;
     /** Per-rule overrides; keys ending in `*` match by prefix. */
     rules: Record<string, GuardAction | 'off'>;
     allowedHosts: string[];
     allowedPaths: string[];
-    /** Whether the gate refuses an install that was never audited. */
+    /** Whether the plugin refuses an install that was never audited. */
     requireAuditForInstall: boolean;
   };
   output: {
@@ -60,7 +60,7 @@ export interface GateConfig {
 }
 
 /** The configuration applied when no `config` row is present. */
-export const DEFAULT_CONFIG: GateConfig = {
+export const DEFAULT_CONFIG: PluginConfig = {
   guard: {
     mode: 'enforce',
     rules: {},
@@ -78,7 +78,7 @@ export const DEFAULT_CONFIG: GateConfig = {
     autoAudit: [],
   },
   log: {
-    dir: join(homedir(), '.dsh', 'security-gate'),
+    dir: join(homedir(), '.dsh', 'security-scan'),
     maxBytes: 4 * 1024 * 1024,
     ttlMs: 24 * 60 * 60 * 1000,
   },
@@ -96,7 +96,7 @@ const ACCEPTED = {
 /** Raised when configuration cannot be honoured. */
 export class ConfigError extends Error {
   constructor(message: string) {
-    super(`dsh-security-gate: ${message}`);
+    super(`dsh-security-scan: ${message}`);
     this.name = 'ConfigError';
   }
 }
@@ -194,7 +194,7 @@ function resolveDir(value: unknown, fallback: string): string {
  * @returns the resolved configuration.
  * @throws ConfigError when a value cannot be honoured.
  */
-export function normalizeConfig(raw: unknown): GateConfig {
+export function normalizeConfig(raw: unknown): PluginConfig {
   if (raw === undefined || raw === null) return DEFAULT_CONFIG;
   if (!isRecord(raw)) throw new ConfigError('config must be a mapping');
 
@@ -277,7 +277,7 @@ export function lookupOverride<T>(overrides: Readonly<Record<string, T>>, id: st
 }
 
 /** The set of enabled output-rule ids, or `undefined` when all are enabled. */
-export function enabledOutputRules(config: GateConfig, known: readonly string[]): Set<string> | undefined {
+export function enabledOutputRules(config: PluginConfig, known: readonly string[]): Set<string> | undefined {
   if (Object.keys(config.output.rules).length === 0) return undefined;
   const enabled = new Set<string>();
   for (const id of known) {
@@ -288,7 +288,7 @@ export function enabledOutputRules(config: GateConfig, known: readonly string[])
 }
 
 /** The output rule's effective action, after overrides. */
-export function outputRuleAction(config: GateConfig, id: string, fallback: 'block' | 'warn'): 'block' | 'warn' | 'off' {
+export function outputRuleAction(config: PluginConfig, id: string, fallback: 'block' | 'warn'): 'block' | 'warn' | 'off' {
   const override = lookupOverride(config.output.rules, id);
   if (override === 'off') return 'off';
   if (config.output.mode === 'monitor') return 'warn';

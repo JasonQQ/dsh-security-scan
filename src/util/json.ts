@@ -6,7 +6,7 @@
  * insignificant whitespace is emitted, and non-finite numbers are rejected
  * rather than silently coerced.
  *
- * @module dsh-security-gate/util/json
+ * @module dsh-security-scan/util/json
  */
 
 import type { JsonValue } from '../types.js';

@@ -1,19 +1,19 @@
 /**
  * The harness surface this plugin consumes, declared structurally.
  *
- * The gate imports nothing at runtime — not `@deepseek-ai/*`, not a schema
+ * The plugin imports nothing at runtime — not `@deepseek-ai/*`, not a schema
  * library, not a utility package. For a plugin whose entire job is to reduce
  * supply-chain surface, shipping a dependency tree to do it would undercut the
- * claim, and it would make the gate itself a supply-chain risk.
+ * claim, and it would make the plugin itself a supply-chain risk.
  *
  * The cost of that choice is this file: the parts of the Cordis context and the
- * tool registry the gate touches, written as minimal structural interfaces. They
+ * tool registry the plugin touches, written as minimal structural interfaces. They
  * are *structural* on purpose — the harness's real objects satisfy them by
  * shape, and a harness revision that adds fields keeps working, while a revision
  * that removes one fails at compile time here rather than at runtime in a user's
  * session.
  *
- * @module dsh-security-gate/dsh
+ * @module dsh-security-scan/dsh
  */
 
 import type { JsonValue } from './types.js';
@@ -119,7 +119,7 @@ export type PostToolDecision =
   | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: unknown[] }
   | { kind: 'block'; feedback: ContentBlock[] };
 
-/** Context options accepted by {@link GateContext.on}. */
+/** Context options accepted by {@link HarnessContext.on}. */
 export interface ListenerOptions {
   /** Run this listener before listeners already registered. */
   prepend?: boolean;
@@ -128,13 +128,13 @@ export interface ListenerOptions {
 }
 
 /**
- * The Cordis context, as far as the gate is concerned.
+ * The Cordis context, as far as the plugin is concerned.
  *
  * `tools` is required because both layers hook the tool pipeline; `commands` and
  * `systemPrompt` are optional so a deployment that composes neither still gets a
- * working gate.
+ * working plugin.
  */
-export interface GateContext {
+export interface HarnessContext {
   tools: ToolRegistryLike;
   commands?: CommandRegistryLike;
   systemPrompt?: SystemPromptLike;
@@ -148,9 +148,9 @@ export interface GateContext {
   /**
    * Run `callback` against a context that has the named services, composing them
    * into the fiber only once they exist. Used for the optional surfaces, so the
-   * gate never refuses to load because a command registry is absent.
+   * plugin never refuses to load because a command registry is absent.
    */
-  inject?: (names: string[], callback: (ctx: GateContext) => void) => void;
+  inject?: (names: string[], callback: (ctx: HarnessContext) => void) => void;
 }
 
 /** The `tools/pre-execute` listener signature. */

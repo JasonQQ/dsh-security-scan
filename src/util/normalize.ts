@@ -11,7 +11,7 @@
  * Views are additive: the raw text is always view zero, so a rule that wants
  * literal matching can still ask for it.
  *
- * @module dsh-security-gate/util/normalize
+ * @module dsh-security-scan/util/normalize
  */
 
 import { normalizeIPv4 } from './patterns.js';

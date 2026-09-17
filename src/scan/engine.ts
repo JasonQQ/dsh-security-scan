@@ -9,7 +9,7 @@
  * credential rule fired and the network rule fired,* which is far more robust
  * than a second regex trying to match both on one line.
  *
- * @module dsh-security-gate/scan/engine
+ * @module dsh-security-scan/scan/engine
  */
 
 import { createHash } from 'node:crypto';

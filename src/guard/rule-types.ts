@@ -14,7 +14,7 @@
  * never has to think about quoting, `$IFS`, or base64 — see
  * `util/normalize.ts`.
  *
- * @module dsh-security-gate/guard/rule-types
+ * @module dsh-security-scan/guard/rule-types
  */
 
 import type { Category, GuardAction, JsonValue, Severity } from '../types.js';
@@ -57,7 +57,7 @@ export interface GuardRule {
   id: string;
   category: Category;
   severity: Severity;
-  /** What the gate should do by default when this rule fires. */
+  /** What the guard should do by default when this rule fires. */
   action: GuardAction;
   title: string;
   detail: string;

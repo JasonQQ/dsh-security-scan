@@ -20,7 +20,7 @@ const dirs = [];
 
 /** A fresh log directory that is removed when the run ends. */
 function freshDir() {
-  const dir = mkdtempSync(join(tmpdir(), 'gate-log-'));
+  const dir = mkdtempSync(join(tmpdir(), 'scan-log-'));
   dirs.push(dir);
   return dir;
 }
@@ -189,13 +189,13 @@ test('the key is created with owner-only permissions, or comes from the environm
   assert.ok(status.keySource === 'generated' || status.keySource === 'file');
 
   const envKey = 'ab'.repeat(32);
-  const envLog = AuditLog.open({ dir: freshDir(), env: { DSH_SECURITY_GATE_KEY: envKey } });
+  const envLog = AuditLog.open({ dir: freshDir(), env: { DSH_SECURITY_SCAN_KEY: envKey } });
   assert.equal(envLog.status().keySource, 'env');
 });
 
 test('a log opened with the environment key verifies entries written with it', () => {
   const dir = freshDir();
-  const env = { DSH_SECURITY_GATE_KEY: 'cd'.repeat(32) };
+  const env = { DSH_SECURITY_SCAN_KEY: 'cd'.repeat(32) };
   const first = AuditLog.open({ dir, env });
   first.append({ kind: 'guard', event: 'a', summary: 'a' });
   const second = AuditLog.open({ dir, env });
@@ -204,9 +204,9 @@ test('a log opened with the environment key verifies entries written with it', (
 
 test('a log re-keyed between runs fails verification', () => {
   const dir = freshDir();
-  const first = AuditLog.open({ dir, env: { DSH_SECURITY_GATE_KEY: '11'.repeat(32) } });
+  const first = AuditLog.open({ dir, env: { DSH_SECURITY_SCAN_KEY: '11'.repeat(32) } });
   first.append({ kind: 'guard', event: 'a', summary: 'a' });
-  const second = AuditLog.open({ dir, env: { DSH_SECURITY_GATE_KEY: '22'.repeat(32) } });
+  const second = AuditLog.open({ dir, env: { DSH_SECURITY_SCAN_KEY: '22'.repeat(32) } });
   assert.equal(second.verify().ok, false);
 });
 

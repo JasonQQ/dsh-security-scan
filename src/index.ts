@@ -1,7 +1,7 @@
 /**
- * `dsh-security-gate` — two-layer runtime security for the DeepSeek Harness.
+ * `dsh-security-scan` — two-layer runtime security for the DeepSeek Harness.
  *
- * **Layer one, before install.** `security_gate_audit` statically analyses a
+ * **Layer one, before install.** `security_scan_audit` statically analyses a
  * plugin and grades it A–D, listing the file paths it reads, the commands it
  * spawns and the domains it contacts; a grade at or below the configured floor
  * is refused, and an install command for a local source is audited inline at the
@@ -17,19 +17,19 @@
  *
  * The plugin imports nothing at runtime. Its only module specifiers are `node:`
  * builtins. For a plugin whose purpose is to shrink supply-chain surface,
- * shipping a dependency tree would defeat the claim and make the gate itself the
+ * shipping a dependency tree would defeat the claim and make the plugin itself the
  * risk it exists to measure.
  *
- * @module dsh-security-gate
+ * @module dsh-security-scan
  */
 
 import { AuditLog } from './audit/log.js';
-import { type GateConfig, normalizeConfig } from './config.js';
+import { type PluginConfig, normalizeConfig } from './config.js';
 import { applyCommand } from './commands.js';
 import type {
   ContentBlock,
   Disposer,
-  GateContext,
+  HarnessContext,
   PostToolDecision,
   PreToolDecision,
   SystemPromptLike,
@@ -44,15 +44,15 @@ import { type GuardMode, inspectToolCall, summarizeCall } from './guard/inspect.
 import { GUARD_RULES, OUTPUT_RULES } from './guard/rules.catalog.js';
 import { auditToolResult, outputRuleIds, summarizeOutput } from './guard/output.js';
 import { buildToolCallContext } from './guard/target.js';
-import { type GateStats, createStats, tally } from './state.js';
+import { type PluginStats, createStats, tally } from './state.js';
 import { applyTools } from './tools.js';
 import { asJsonValue } from './dsh.js';
 
 /** Cordis plugin name, used in loader diagnostics. */
-export const name = 'security-gate';
+export const name = 'security-scan';
 
 /**
- * Services the gate requires.
+ * Services the plugin requires.
  *
  * Only `tools`: both layers hook the tool pipeline, and nothing else is load-
  * bearing. The command registry and the system prompt are consumed
@@ -69,7 +69,7 @@ function formatBlockReason(tool: string, detections: readonly Detection[]): stri
   const ranked = [...detections].sort(
     (left, right) => SEVERITY_ORDER.indexOf(left.severity) - SEVERITY_ORDER.indexOf(right.severity),
   );
-  const lines = [`dsh-security-gate blocked this ${tool} call.`, ''];
+  const lines = [`dsh-security-scan blocked this ${tool} call.`, ''];
   for (const detection of ranked.slice(0, REASON_RULE_CAP)) {
     lines.push(`[${detection.severity}] ${detection.id} — ${detection.title}`);
     lines.push(`  ${detection.detail}`);
@@ -92,16 +92,16 @@ function formatAskReason(tool: string, detections: readonly Detection[]): string
   const worst = [...detections].sort(
     (left, right) => SEVERITY_ORDER.indexOf(left.severity) - SEVERITY_ORDER.indexOf(right.severity),
   )[0];
-  if (worst === undefined) return `dsh-security-gate: ${tool} requires confirmation.`;
-  return `dsh-security-gate: ${worst.id} — ${worst.title}. ${worst.matched}. ${worst.remediation}`;
+  if (worst === undefined) return `dsh-security-scan: ${tool} requires confirmation.`;
+  return `dsh-security-scan: ${worst.id} — ${worst.title}. ${worst.matched}. ${worst.remediation}`;
 }
 
 /** Build the dependency bundle the tools and command share. */
-export interface GateDeps {
-  config: GateConfig;
+export interface PluginDeps {
+  config: PluginConfig;
   registry: AuditRegistry;
   log: AuditLog;
-  stats: GateStats;
+  stats: PluginStats;
 }
 
 /**
@@ -110,17 +110,17 @@ export interface GateDeps {
  * @param ctx - the harness context; `tools` must be present.
  * @param rawConfig - the `config` row from the profile, validated here.
  */
-export function apply(ctx: GateContext, rawConfig?: unknown): void {
+export function apply(ctx: HarnessContext, rawConfig?: unknown): void {
   const config = normalizeConfig(rawConfig);
   const log = AuditLog.open({ dir: config.log.dir, maxBytes: config.log.maxBytes });
   const registry = new AuditRegistry({ ttlMs: config.log.ttlMs });
   const stats = createStats();
-  const deps: GateDeps = { config, registry, log, stats };
+  const deps: PluginDeps = { config, registry, log, stats };
 
   log.append({
     kind: 'lifecycle',
-    event: 'gate-loaded',
-    summary: `security gate loaded: guard ${config.guard.mode}, output ${config.output.mode}, install floor ${config.install.blockAtOrBelow}`,
+    event: 'plugin-loaded',
+    summary: `security scan loaded: guard ${config.guard.mode}, output ${config.output.mode}, install floor ${config.install.blockAtOrBelow}`,
     data: {
       guardMode: config.guard.mode,
       outputMode: config.output.mode,
@@ -142,7 +142,7 @@ export function apply(ctx: GateContext, rawConfig?: unknown): void {
 
   // The command registry and system prompt are optional surfaces: consume them
   // when the composition provides them, and keep guarding when it does not.
-  const optional = (names: string[], callback: (sctx: GateContext) => void): void => {
+  const optional = (names: string[], callback: (sctx: HarnessContext) => void): void => {
     if (typeof ctx.inject === 'function') ctx.inject(names, callback);
     else callback(ctx);
   };
@@ -152,13 +152,13 @@ export function apply(ctx: GateContext, rawConfig?: unknown): void {
   optional(['systemPrompt'], (sctx) => {
     const prompt = sctx.systemPrompt ?? (sctx.get('systemPrompt') as SystemPromptLike | undefined);
     prompt?.section({
-      name: 'security-gate',
+      name: 'security-scan',
       order: 108,
       text: [
-        'A security gate inspects every tool call before it runs and every tool result before it returns.',
+        'A security plugin (dsh-security-scan) inspects every tool call before it runs and every tool result before it returns.',
         'A refused call comes back as an error naming the rule, the matched text and a fix; narrow the call to the specific target rather than retrying it unchanged.',
         'A result containing a credential or an internal address may come back with those values replaced by `«redacted»` markers; treat the markers as "this value exists but is not being shown to you" and do not try to recover it.',
-        'Before installing a plugin, run `security_gate_audit` on its source: a grade at or below the configured floor is refused, and local sources are audited automatically at install time.',
+        'Before installing a plugin, run `security_scan_audit` on its source: a grade at or below the configured floor is refused, and local sources are audited automatically at install time.',
       ].join(' '),
     });
   });
@@ -173,7 +173,7 @@ export function apply(ctx: GateContext, rawConfig?: unknown): void {
       const args = asJsonValue(exec.arguments);
       const call = buildToolCallContext(exec.name, args);
 
-      // The install gate runs first for install commands: it consults the audit
+      // The install check runs first for install commands: it consults the audit
       // registry, which a stateless rule cannot, so it owns the verdict and
       // `harness.plugin-install` is suppressed for this call to avoid emitting a
       // second, unbacked opinion about the same command.
@@ -211,7 +211,7 @@ export function apply(ctx: GateContext, rawConfig?: unknown): void {
             });
             if (action === 'block') {
               stats.callsBlocked += 1;
-              return { kind: 'deny', reason: decision.reason ?? 'install refused by the security gate' };
+              return { kind: 'deny', reason: decision.reason ?? 'install refused by dsh-security-scan' };
             }
             if (action === 'ask') {
               stats.callsAsked += 1;
@@ -323,7 +323,7 @@ export function apply(ctx: GateContext, rawConfig?: unknown): void {
             {
               type: 'text',
               text: [
-                `dsh-security-gate withheld this ${exec.name} result.`,
+                `dsh-security-scan withheld this ${exec.name} result.`,
                 '',
                 ...detections.map((detection) => `[${detection.severity}] ${detection.id} — ${detection.title}: ${detection.detail}`),
                 '',
@@ -353,13 +353,13 @@ export function apply(ctx: GateContext, rawConfig?: unknown): void {
         });
       })
       .catch((error: unknown) => {
-        ctx.logger?.warn(`security-gate: auto-audit of ${target} failed: ${error instanceof Error ? error.message : String(error)}`);
+        ctx.logger?.warn(`security-scan: auto-audit of ${target} failed: ${error instanceof Error ? error.message : String(error)}`);
       });
   }
 }
 
-/** Re-exported so a caller can build a configured gate without the loader. */
-export type { GateConfig } from './config.js';
+/** Re-exported so a caller can build a configured plugin without the loader. */
+export type { PluginConfig } from './config.js';
 export { DEFAULT_CONFIG, normalizeConfig, ConfigError } from './config.js';
 export { AuditLog } from './audit/log.js';
 export { AuditRegistry } from './scan/registry.js';

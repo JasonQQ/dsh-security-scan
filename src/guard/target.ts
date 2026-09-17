@@ -11,7 +11,7 @@
  * key, because a credential read can hide in a `grep` pattern, a `glob` brace
  * expansion, a redirect target inside a command, or a `--output` flag.
  *
- * @module dsh-security-gate/guard/target
+ * @module dsh-security-scan/guard/target
  */
 
 import type { JsonValue } from '../types.js';

@@ -1,14 +1,14 @@
-# dsh-security-gate
+# dsh-security-scan
 
 Two-layer security for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): a **pre-install audit** that reads a plugin's source before you install it, and a **runtime guard** that inspects every tool call before it runs and every result before it returns.
 
-> **`dsh-security-gate` is the name of this repository, not an installable npm package name.** An unrelated package already occupies that name on npm. See [Install](#install) and [`docs/publishing.md`](docs/publishing.md).
+> **`dsh-security-scan` is the name of this repository, not an installable npm package name.** An unrelated package already occupies that name on npm. See [Install](#install) and [`docs/publishing.md`](docs/publishing.md).
 
 ## What it does
 
 ### Layer one — pre-install audit
 
-`security_gate_audit` parses a plugin's source **without executing it** and produces a report: the file paths it reads and writes, the commands it spawns, the domains it contacts, its declared install-time hooks, and every rule that fired — each anchored to the file and line that justified it. Then it grades the result **A–D**.
+`security_scan_audit` parses a plugin's source **without executing it** and produces a report: the file paths it reads and writes, the commands it spawns, the domains it contacts, its declared install-time hooks, and every rule that fired — each anchored to the file and line that justified it. Then it grades the result **A–D**.
 
 A grade `D` is refused. A local source named by an install command is audited **at the moment the install command runs**, so the refusal is about the actual bytes on disk rather than a name someone hoped matched.
 
@@ -93,17 +93,19 @@ Verified by `npm run inventory`; the marketplace treats these as claims about th
 
 Guard actions: **34 block**, **23 ask**, **4 warn**.
 
-Surface: **4 tools** (`security_gate_audit`, `security_gate_status`, `security_gate_log`, `security_gate_verify`) and **1 command** (`/security audit|status|log|verify|rules`).
+Surface: **4 tools** (`security_scan_audit`, `security_scan_status`, `security_scan_log`, `security_scan_verify`) and **1 command** (`/security audit|status|log|verify|rules`).
 
 ## Install
 
-The npm name `dsh-security-gate` is **already published by a different author**, and so is `dsh-plugin-gate`. Installing either of those gives you someone else's plugin. Until this repository is published under a scope, install it from the repository URL:
+The npm name `dsh-security-scan` was verified free, so it is the intended publish target. Until it is published, install from the repository URL:
 
 ```sh
-dsh plugin add https://github.com/OWNER/dsh-security-gate
+dsh plugin add https://github.com/OWNER/dsh-security-scan
 ```
 
-`package.json` ships with an `OWNER` placeholder — replace it with the hosting account before publishing. [`docs/publishing.md`](docs/publishing.md) covers that step, the npm name collision in full, and the rest of the marketplace submission checklist.
+`package.json` ships with an `OWNER` placeholder — replace it with the hosting account before publishing. [`docs/publishing.md`](docs/publishing.md) covers that step, the npm publish, and the rest of the marketplace submission checklist.
+
+The name was changed from `dsh-security-gate` before release for a concrete reason: an **unrelated** plugin already occupies that name on npm, plus a third occupies `dsh-security-guard`. Publishing or installing under either of those would have handed you someone else's plugin, which is a poor look for a security tool in particular.
 
 ## Configuration
 
@@ -111,8 +113,8 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
 
 ```yaml
 - insert:
-    - id: security-gate
-      name: dsh-security-gate
+    - id: security-scan
+      name: dsh-security-scan
       config:
         guard:
           mode: enforce            # enforce | monitor | off
@@ -131,7 +133,7 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
           fetch: false             # allow auditing an https .tgz by downloading it
           autoAudit: []            # paths audited when the plugin loads
         log:
-          dir: ~/.dsh/security-gate
+          dir: ~/.dsh/security-scan
           maxBytes: 4194304
           ttlMs: 86400000          # how long an audit record stays usable
 ```
@@ -140,7 +142,7 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
 
 Two environment variables matter:
 
-- `DSH_SECURITY_GATE_KEY` — 64 hex characters, used as the audit-log HMAC key instead of the on-disk `audit.key`. Moving the key out of the log directory raises the bar on tampering.
+- `DSH_SECURITY_SCAN_KEY` — 64 hex characters, used as the audit-log HMAC key instead of the on-disk `audit.key`. Moving the key out of the log directory raises the bar on tampering.
 - Nothing else. The plugin reads no other environment variable.
 
 ## Zero runtime dependencies
@@ -158,14 +160,14 @@ Built output imports
 
 The package declares no install-time lifecycle scripts either, and CI fails the build if any of that changes.
 
-For a plugin whose job is to shrink supply-chain surface, shipping a dependency tree would defeat the claim — and it would make the gate itself the risk it exists to measure. [`docs/design.md`](docs/design.md) is honest about what that costs.
+For a plugin whose job is to shrink supply-chain surface, shipping a dependency tree would defeat the claim — and it would make the plugin itself the risk it exists to measure. [`docs/design.md`](docs/design.md) is honest about what that costs.
 
 ## Limits
 
 Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
 
 - **A high grade is not a clean bill of health.** It means no rule fired over the bytes that were read. A partial scan or a binary payload is marked as such in the report.
-- **A registry install is audited by name, not by content.** The gate cannot see what npm or git will serve. Audits expire for that reason, and the refusal text says so rather than implying a guarantee it cannot make.
+- **A registry install is audited by name, not by content.** The scanner cannot see what npm or git will serve. Audits expire for that reason, and the refusal text says so rather than implying a guarantee it cannot make.
 - **The chain proves tampering, not integrity.** Anyone holding both the log and the key can rebuild a consistent chain. The guarantee is that silent modification is impossible.
 - **`monitor` protects nothing.** It records. That is its purpose.
 

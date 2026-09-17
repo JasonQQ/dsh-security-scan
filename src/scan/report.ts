@@ -8,10 +8,10 @@
  *
  * The capability inventory is placed before the findings on purpose. "This
  * plugin reads these eleven paths and calls these three hosts" is answerable
- * without judgement, and it is what lets a reader disagree with the gate's
+ * without judgement, and it is what lets a reader disagree with the scanner's
  * grade rather than merely receive it.
  *
- * @module dsh-security-gate/scan/report
+ * @module dsh-security-scan/scan/report
  */
 
 import type { Capability, Finding, ScanResult, Severity } from '../types.js';

@@ -3,10 +3,10 @@
  *
  * Four tools, each answering a question the model can actually be asked:
  *
- * - `security_gate_audit` — "is this plugin safe to install?" (layer one, on demand)
- * - `security_gate_status` — "what is the gate doing right now?"
- * - `security_gate_log` — "what has the gate blocked or redacted?"
- * - `security_gate_verify` — "has the audit log been tampered with?"
+ * - `security_scan_audit` — "is this plugin safe to install?" (layer one, on demand)
+ * - `security_scan_status` — "what is the plugin doing right now?"
+ * - `security_scan_log` — "what has the guard blocked or redacted?"
+ * - `security_scan_verify` — "has the audit log been tampered with?"
  *
  * Unlike most of this plugin, these are defined without the harness's
  * `defineTool` helper, because importing that helper would mean importing
@@ -16,36 +16,36 @@
  * execute }` with JSON Schema parameters — and argument validation happens in
  * `execute`, which is what the registry would otherwise have done for us.
  *
- * @module dsh-security-gate/tools
+ * @module dsh-security-scan/tools
  */
 
 import type {
   ContentBlock,
   Disposer,
-  GateContext,
+  HarnessContext,
   JsonSchema,
   ToolDefinitionLike,
   ToolExecutionLike,
 } from './dsh.js';
-import type { GateConfig } from './config.js';
+import type { PluginConfig } from './config.js';
 import type { AuditKind, Grade, JsonValue, Severity } from './types.js';
 import type { AuditLog } from './audit/log.js';
 import type { AuditRegistry } from './scan/registry.js';
-import type { GateStats } from './state.js';
+import type { PluginStats } from './state.js';
 import { auditSource } from './scan/engine.js';
 import { renderJson, renderReport, renderSummary } from './scan/report.js';
 import { normalizeSpec } from './scan/registry.js';
 
 /** Everything the tools need from the plugin's shared state. */
 export interface ToolDeps {
-  config: GateConfig;
+  config: PluginConfig;
   registry: AuditRegistry;
   log: AuditLog;
-  stats: GateStats;
+  stats: PluginStats;
 }
 
 /** Definition helper that keeps argument and result types while erasing them on the seam. */
-function defineGateTool<A, V>(spec: {
+function definePluginTool<A, V>(spec: {
   name: string;
   description: string;
   parameters: JsonSchema;
@@ -100,12 +100,12 @@ function counts(findings: readonly { severity: Severity }[]): Record<Severity, n
   return out;
 }
 
-/** Register every gate tool. */
-export function applyTools(ctx: GateContext, deps: ToolDeps): Disposer[] {
+/** Register every plugin tool. */
+export function applyTools(ctx: HarnessContext, deps: ToolDeps): Disposer[] {
   const disposers: Disposer[] = [];
 
-  disposers.push(ctx.tools.register(defineGateTool<{ source: string; format?: 'summary' | 'report' | 'json' }, AuditValue>({
-    name: 'security_gate_audit',
+  disposers.push(ctx.tools.register(definePluginTool<{ source: string; format?: 'summary' | 'report' | 'json' }, AuditValue>({
+    name: 'security_scan_audit',
     description:
       'Statically audit a DSH plugin before installing it. Accepts a local directory, a local .tgz/.tar.gz, or (only when install.fetch is enabled) an https .tgz URL. Returns file paths, spawned commands and contacted domains the plugin reaches, plus findings graded A-D; grade D means the install is refused. Nothing is executed and nothing is written outside the audit log.',
     parameters: {
@@ -183,10 +183,10 @@ export function applyTools(ctx: GateContext, deps: ToolDeps): Disposer[] {
     render: (_args, value) => [{ type: 'text', text: value.report }],
   })));
 
-  disposers.push(ctx.tools.register(defineGateTool<Record<string, never>, JsonValue>({
-    name: 'security_gate_status',
+  disposers.push(ctx.tools.register(definePluginTool<Record<string, never>, JsonValue>({
+    name: 'security_scan_status',
     description:
-      'Report the security gate\'s current posture: guard and output-audit modes, which rule overrides are active, how many tool calls have been blocked, read or redacted, the audit-log chain state, and the audits currently held.',
+      'Report dsh-security-scan\'s current posture: guard and output-audit modes, which rule overrides are active, how many tool calls have been blocked, read or redacted, the audit-log chain state, and the audits currently held.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
     outputSchema: { type: 'object' },
     execute() {
@@ -238,8 +238,8 @@ export function applyTools(ctx: GateContext, deps: ToolDeps): Disposer[] {
     render: (_args, value) => [{ type: 'text', text: renderStatusText(value) }],
   })));
 
-  disposers.push(ctx.tools.register(defineGateTool<{ limit?: number; kind?: AuditKind; event?: string }, JsonValue>({
-    name: 'security_gate_log',
+  disposers.push(ctx.tools.register(definePluginTool<{ limit?: number; kind?: AuditKind; event?: string }, JsonValue>({
+    name: 'security_scan_log',
     description:
       'Read the tamper-evident audit log: every tool call the guard inspected and acted on, every secret the output audit redacted, and every pre-install audit run. Entries are returned oldest-last.',
     parameters: {
@@ -287,8 +287,8 @@ export function applyTools(ctx: GateContext, deps: ToolDeps): Disposer[] {
     render: (_args, value) => [{ type: 'text', text: renderLogText(value) }],
   })));
 
-  disposers.push(ctx.tools.register(defineGateTool<Record<string, never>, JsonValue>({
-    name: 'security_gate_verify',
+  disposers.push(ctx.tools.register(definePluginTool<Record<string, never>, JsonValue>({
+    name: 'security_scan_verify',
     description:
       'Verify the HMAC hash chain of the audit log. Detects an edited entry, a deleted or reordered entry, a truncated log, and an edited anchor. Reports the first sequence number where the log stopped being trustworthy.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
@@ -341,7 +341,7 @@ export function renderStatusText(value: JsonValue): string {
   const top = record['topRules'] as { id: string; count: number }[];
   const audits = record['auditsHeld'] as Record<string, JsonValue>[];
   const lines = [
-    `Security gate status`,
+    `Security scan status`,
     `  guard mode: ${String(record['guardMode'])} | output mode: ${String(record['outputMode'])} | install floor: ${String(record['installFloor'])}`,
     `  audit required before install: ${String(record['requireAuditForInstall'])} | outbound fetch for audits: ${String(record['fetchEnabled'])}`,
     `  calls inspected ${counters['callsInspected']}, blocked ${counters['callsBlocked']}, asked ${counters['callsAsked']}, warned ${counters['callsWarned']}`,

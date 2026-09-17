@@ -1,5 +1,5 @@
 {
-  "name": "dsh-security-gate",
+  "name": "dsh-security-scan",
   "version": "0.1.0",
   "description": "Two-layer security plugin for DeepSeek Harness: a pre-install static audit that grades plugin sources A-D and refuses D, plus runtime guardrails that block destructive tool arguments, redact leaked secrets, and record every decision in an HMAC hash-chained log.",
   "type": "module",
@@ -42,11 +42,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/dsh-security-gate.git"
+    "url": "git+https://github.com/OWNER/dsh-security-scan.git"
   },
-  "homepage": "https://github.com/OWNER/dsh-security-gate#readme",
+  "homepage": "https://github.com/OWNER/dsh-security-scan#readme",
   "bugs": {
-    "url": "https://github.com/OWNER/dsh-security-gate/issues"
+    "url": "https://github.com/OWNER/dsh-security-scan/issues"
   },
   "dsh": {
     "bundle": {

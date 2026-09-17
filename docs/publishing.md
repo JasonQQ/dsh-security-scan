@@ -7,7 +7,7 @@ marketplace's CI checks.
 
 ## 1. Required: replace the `OWNER` placeholder
 
-`package.json` currently points at `https://github.com/OWNER/dsh-security-gate`.
+`package.json` currently points at `https://github.com/OWNER/dsh-security-scan`.
 Replace `OWNER` in the `repository`, `homepage` and `bugs` fields with the GitHub
 account that will host the repository.
 
@@ -16,44 +16,63 @@ account that will host the repository.
 sed -i '' 's|github.com/OWNER/|github.com/<your-handle>/|g' package.json
 ```
 
-The marketplace entry in `marketplace/dsh-security-gate.yml` uses the same
+The marketplace entry in `marketplace/dsh-security-scan.yml` uses the same
 placeholder and must match the real repository URL **exactly** — the CI job
 fetches `package.json` from that URL and fails if `url` and `name` disagree with
 the repository it points at.
 
-## 2. Required: the npm name is taken
+## 2. Required: publish to npm under a name that was actually free
 
-`dsh-security-gate` is **already published on npm by a different author**
-(`ihuajiu/dsh-code-security`), and so is `dsh-plugin-gate`
-(`863683348/dsh-plugin-gate`). Publishing this package under the same unscoped
-name is impossible, and `dsh plugin add dsh-security-gate` would install the
-*other* author's plugin — which is the last thing a security plugin should do.
+The plugin was originally called `dsh-security-gate`. That name was **already
+published on npm by an unrelated author** (`ihuajiu/dsh-code-security`), and a
+third plugin occupied `dsh-security-guard`. Publishing under either would have
+failed, and installing under either would have handed users someone else's
+plugin — a particularly poor outcome for a security tool. Hence the rename to
+`dsh-security-scan`.
 
-Two supported options:
-
-**Option A — publish under a scope (recommended).** Keep the repository name and
-publish the package under your own scope:
-
-```sh
-npm pkg set name='@<your-scope>/dsh-security-gate'
-```
-
-Then update `marketplace/dsh-security-gate.yml`'s `tarball:` field if you attach
-one, and add the scoped install command to both READMEs.
-
-**Option B — do not publish to npm.** The marketplace only requires a repository
-with a `dsh.bundle` manifest; the `tarball` field is optional. Users install from
-the git URL:
+That name was verified free on npm **and** free in the marketplace entry list at
+the time of the rename:
 
 ```sh
-dsh plugin add https://github.com/<your-handle>/dsh-security-gate
+# 404 means the name is available
+curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org/dsh-security-scan
+
+# no entry ending in `__dsh-security-scan.yml` means no listing collision
+curl -s https://api.github.com/repos/awesome-dsh-plugin/awesome-dsh-plugin/contents/data/plugins \
+  | grep -c 'dsh-security-scan' || true
 ```
 
-Attaching a prebuilt tarball to a GitHub Release is the better experience if you
-choose this path, since it skips the `allowBuilds` approval step. If you do,
-follow the marketplace rule about `latest/download/`: keep the asset name
-**free of the version number**, or pin the release tag, otherwise the URL works
-on submission day and 404s on your next release.
+**Re-run both before publishing.** npm names are first-come and a free name today
+is not a free name next month. If `dsh-security-scan` is taken by the time you
+publish, pick another and change it in three places — `package.json`'s `name`,
+`cordis.patch.yml`'s `name`, and the install line in both READMEs — plus the URL
+and name fields of `marketplace/dsh-security-scan.yml`.
+
+To publish:
+
+```sh
+npm ci --ignore-scripts
+npm run prepublishOnly     # clean, build, then typecheck + tests + smoke
+npm publish                # publishConfig.access is already "public"
+```
+
+Publishing to npm is worth doing rather than installing from git: prebuilt
+installs skip the `allowBuilds` build-approval step, and it gives the marketplace
+entry a stable package name to point at.
+
+**If you would rather not publish**, the marketplace only requires a repository
+with a `dsh.bundle` manifest — the `tarball` field is optional, and users install
+from the git URL:
+
+```sh
+dsh plugin add https://github.com/<your-handle>/dsh-security-scan
+```
+
+Attaching a prebuilt tarball to a GitHub Release is the better experience on that
+path, since it also skips `allowBuilds`. If you do, follow the marketplace rule
+about `latest/download/`: keep the asset name **free of the version number**, or
+pin the release tag, otherwise the URL works on submission day and 404s on your
+next release.
 
 ## 3. Required: repository topic
 
@@ -78,7 +97,7 @@ node --test test/
 ```
 
 Then confirm the numbers quoted in `README.md`, `README.zh.md` and
-`marketplace/dsh-security-gate.yml` against reality:
+`marketplace/dsh-security-scan.yml` against reality:
 
 ```sh
 node --test test/ 2>&1 | tail -20
@@ -92,7 +111,7 @@ is the one thing that gets an otherwise-good plugin sent back.
 ## 6. The submission itself
 
 Open one pull request adding one file, `data/plugins/<owner>__<repo>.yml`, copied
-from `marketplace/dsh-security-gate.yml`. Do not edit either README in the
+from `marketplace/dsh-security-scan.yml`. Do not edit either README in the
 marketplace repository — they are generated from `data/plugins/*.yml`.
 
 The `description.en` line contains a `: ` only if you introduce one; if you do,

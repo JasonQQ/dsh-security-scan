@@ -1,8 +1,8 @@
 # Security
 
-This document describes what `dsh-security-gate` does, what it deliberately does
+This document describes what `dsh-security-scan` does, what it deliberately does
 not do, and what it cannot prove. Read the **Limits** section before relying on
-the gate for anything that matters.
+the plugin for anything that matters.
 
 ## Reporting a vulnerability
 
@@ -19,7 +19,7 @@ source that reproduces it.
 
 ### Layer one — pre-install audit
 
-`security_gate_audit` parses a plugin's source **without executing it** and
+`security_scan_audit` parses a plugin's source **without executing it** and
 reports:
 
 - the file paths it reads and writes, the commands it spawns, and the domains it
@@ -63,7 +63,7 @@ Every decision is appended to `audit.log.jsonl` as
 previous entry's `hash`. A MACed sidecar (`audit.head.json`) records the expected
 entry count and head hash.
 
-`security_gate_verify` reports the **first** sequence number where the log
+`security_scan_verify` reports the **first** sequence number where the log
 stopped being trustworthy, distinguishing an edited entry, a broken link
 (deletion or reordering), a corrupt line, a truncated log, and a rewritten
 anchor.
@@ -75,12 +75,12 @@ anchor.
   official `@deepseek-ai/*` packages. The harness surface this plugin consumes is
   declared structurally in `src/dsh.ts` instead of imported.
 - **No install-time scripts.** The package declares no lifecycle hooks.
-- **No network access.** The gate never makes an outbound request unless you set
+- **No network access.** The plugin never makes an outbound request unless you set
   `install.fetch: true` *and* pass an `https:` URL to an audit. Even then, plain
   HTTP is refused and the download is size-capped.
-- **The gate never redacts its own logs into uselessness, but it never writes a
-  secret either.** Findings store the *shape* of what matched, and every summary
-  and payload is passed through the redactor before sealing.
+- **The log never writes a secret, even the one it just caught.** Findings store
+  the *shape* of what matched, capability values are redacted on extraction, and
+  every summary and payload is passed through the redactor before sealing.
 
 ## Limits
 
@@ -92,21 +92,21 @@ than one with a narrow, honest scope.
    logic behind a remote configuration fetch, and anything inside a binary
    payload are invisible to static analysis.
 2. **A registry install is audited by name, not by content.** When you audit
-   `foo@1.2.3` and later run `dsh plugin add foo`, the gate binds the grade to
+   `foo@1.2.3` and later run `dsh plugin add foo`, the scanner binds the grade to
    the *name* it audited. It cannot see the bytes npm or git will serve. The
    refusal and escalation text says this explicitly. Audits expire
    (`log.ttlMs`, default 24h) so a stale grade cannot outlive its artifact.
 3. **The chain proves tampering, not integrity.** Anyone who can write both the
    log and `audit.key` can rebuild a consistent chain. The guarantee is that
    silent modification is impossible: any edit leaves a verifiable mark. Move the
-   key off the log directory, or supply it via `DSH_SECURITY_GATE_KEY`, to raise
+   key off the log directory, or supply it via `DSH_SECURITY_SCAN_KEY`, to raise
    the bar.
 4. **`monitor` mode does not protect anything.** It records. That is its purpose
    — a way to learn which rules your own workflow trips before refusing calls.
 5. **Rule overrides and allowlists are bypasses you choose.** `guard.rules`,
    `guard.allowedHosts` and `guard.allowedPaths` widen what is permitted. Every
-   use of them appears in the audit log, but the gate will not second-guess you.
-6. **The gate guards tool calls, not the process.** Code already running in the
+   use of them appears in the audit log, but the plugin will not second-guess you.
+6. **The guard covers tool calls, not the process.** Code already running in the
    harness can bypass the tool pipeline entirely. This is a guardrail against
    prompt-driven mistakes and hostile tool arguments, not a sandbox.
 7. **The scanner and the guard are regex- and heuristic-driven.** They are

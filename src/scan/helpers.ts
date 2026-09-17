@@ -6,7 +6,7 @@
  * sink tables have exactly one definition. When a new runtime is supported,
  * adding it here upgrades every rule that consults the table.
  *
- * @module dsh-security-gate/scan/helpers
+ * @module dsh-security-scan/scan/helpers
  */
 
 import type { FileInfo } from './rule-types.js';

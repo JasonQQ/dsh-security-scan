@@ -1,14 +1,14 @@
-# dsh-security-gate
+# dsh-security-scan
 
 DeepSeek Harness 的两层安全插件：**安装前体检**——装之前先把插件源码读一遍；**运行时护栏**——每次工具调用执行前拦一遍，每个结果返回前审一遍。
 
-> **`dsh-security-gate` 是本仓库的名字，不是可安装的 npm 包名。** npm 上该名字已被一个无关的包占用。见[安装](#安装)与 [`docs/publishing.md`](docs/publishing.md)。
+> **`dsh-security-scan` 是本仓库的名字，不是可安装的 npm 包名。** npm 上该名字已被一个无关的包占用。见[安装](#安装)与 [`docs/publishing.md`](docs/publishing.md)。
 
 ## 功能
 
 ### 第一层——安装前体检
 
-`security_gate_audit` **不执行任何代码**，只静态解析插件源码，产出报告：它读取和写入的文件路径、派生的命令、连接的域名、声明的安装期钩子，以及每一条命中的规则——每条都锚定到具体的文件与行号。最终给出 **A–D** 信任评级。
+`security_scan_audit` **不执行任何代码**，只静态解析插件源码，产出报告：它读取和写入的文件路径、派生的命令、连接的域名、声明的安装期钩子，以及每一条命中的规则——每条都锚定到具体的文件与行号。最终给出 **A–D** 信任评级。
 
 D 级直接拒绝安装。安装命令指向本地源码时，体检在**安装命令执行的那一刻**就地完成，因此拒绝依据的是磁盘上真实的字节，而不是一个「希望匹配上」的名字。
 
@@ -92,17 +92,19 @@ Audit chain verification FAILED
 
 护栏动作分布：**34 条拒绝**、**23 条升级审批**、**4 条仅记录**。
 
-对外面：**4 个工具**（`security_gate_audit`、`security_gate_status`、`security_gate_log`、`security_gate_verify`）与 **1 个命令**（`/security audit|status|log|verify|rules`）。
+对外面：**4 个工具**（`security_scan_audit`、`security_scan_status`、`security_scan_log`、`security_scan_verify`）与 **1 个命令**（`/security audit|status|log|verify|rules`）。
 
 ## 安装
 
-npm 上的 `dsh-security-gate` **已被另一位作者发布**，`dsh-plugin-gate` 同样。装这两个名字拿到的是别人的插件。在本仓库以 scope 发布之前，请从仓库地址安装：
+npm 上的 `dsh-security-scan` 已确认未被占用，是计划中的发布名。在正式发布之前，请从仓库地址安装：
 
 ```sh
-dsh plugin add https://github.com/OWNER/dsh-security-gate
+dsh plugin add https://github.com/OWNER/dsh-security-scan
 ```
 
-`package.json` 里保留了 `OWNER` 占位符，发布前请替换为托管账号。[`docs/publishing.md`](docs/publishing.md) 写清了这一步、npm 名字冲突的完整处理方式，以及市场投稿清单的其余部分。
+`package.json` 里保留了 `OWNER` 占位符，发布前请替换为托管账号。[`docs/publishing.md`](docs/publishing.md) 写清了这一步、npm 发布，以及市场投稿清单的其余部分。
+
+改名的原因很具体：npm 上 `dsh-security-gate` **已被一个无关的插件占用**，`dsh-security-guard` 也被第三个占用。以这两个名字发布或安装，用户拿到的都会是别人的插件——对一个安全工具来说尤其难堪。
 
 ## 配置
 
@@ -110,8 +112,8 @@ dsh plugin add https://github.com/OWNER/dsh-security-gate
 
 ```yaml
 - insert:
-    - id: security-gate
-      name: dsh-security-gate
+    - id: security-scan
+      name: dsh-security-scan
       config:
         guard:
           mode: enforce            # enforce | monitor | off
@@ -130,7 +132,7 @@ dsh plugin add https://github.com/OWNER/dsh-security-gate
           fetch: false             # 是否允许下载 https .tgz 进行体检
           autoAudit: []            # 插件加载时自动体检的路径
         log:
-          dir: ~/.dsh/security-gate
+          dir: ~/.dsh/security-scan
           maxBytes: 4194304
           ttlMs: 86400000          # 体检记录的有效期
 ```
@@ -139,7 +141,7 @@ dsh plugin add https://github.com/OWNER/dsh-security-gate
 
 只有一个环境变量有意义：
 
-- `DSH_SECURITY_GATE_KEY` —— 64 个十六进制字符，用它替代磁盘上的 `audit.key` 作为审计日志的 HMAC 密钥。把密钥移出日志目录能显著抬高篡改门槛。
+- `DSH_SECURITY_SCAN_KEY` —— 64 个十六进制字符，用它替代磁盘上的 `audit.key` 作为审计日志的 HMAC 密钥。把密钥移出日志目录能显著抬高篡改门槛。
 
 ## 零运行时依赖
 

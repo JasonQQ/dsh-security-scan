@@ -1,18 +1,18 @@
 /**
- * Runtime counters for the gate.
+ * Runtime counters for the plugin.
  *
  * Kept as plain counters rather than derived from the audit log on demand: the
  * log is the durable record, but reading and parsing it to answer "how many
  * calls did you block?" would make the status tool do file I/O proportional to
  * session length. These are the cheap numbers; the log is the evidence.
  *
- * @module dsh-security-gate/state
+ * @module dsh-security-scan/state
  */
 
 import type { Detection } from './types.js';
 
 /** Counters and per-rule tallies. */
-export interface GateStats {
+export interface PluginStats {
   /** Tool calls the guard inspected. */
   callsInspected: number;
   /** Calls refused. */
@@ -32,7 +32,7 @@ export interface GateStats {
 }
 
 /** Fresh counters. */
-export function createStats(): GateStats {
+export function createStats(): PluginStats {
   return {
     callsInspected: 0,
     callsBlocked: 0,
@@ -51,7 +51,7 @@ export function createStats(): GateStats {
  * @param stats - the counters to update.
  * @param detections - detections that fired.
  */
-export function tally(stats: GateStats, detections: readonly Detection[]): void {
+export function tally(stats: PluginStats, detections: readonly Detection[]): void {
   for (const detection of detections) {
     stats.ruleHits.set(detection.id, (stats.ruleHits.get(detection.id) ?? 0) + 1);
   }

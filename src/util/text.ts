@@ -7,7 +7,7 @@
  * has made the problem worse, so there is exactly one place that decides what
  * "redacted" looks like and exactly one place to audit it.
  *
- * @module dsh-security-gate/util/text
+ * @module dsh-security-scan/util/text
  */
 
 import { SECRET_PATTERNS } from './patterns.js';

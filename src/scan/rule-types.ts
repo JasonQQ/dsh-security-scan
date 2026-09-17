@@ -7,7 +7,7 @@
  * rules are cheap and numerous; package rules are few and carry the correlation
  * that a signature list cannot express.
  *
- * @module dsh-security-gate/scan/rule-types
+ * @module dsh-security-scan/scan/rule-types
  */
 
 import type {

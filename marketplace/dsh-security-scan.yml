@@ -17,8 +17,18 @@
 # The description is read as a claim about the code and checked against it. Every
 # number below is verified by `npm run inventory` and `npm test` in this
 # repository; re-run them before submitting and fix the line if anything drifted.
-url: https://github.com/OWNER/dsh-security-gate
-name: OWNER/dsh-security-gate
+#
+# A note for the reviewer, since the security category already has close
+# neighbours: this entry is not a duplicate of `863683348/dsh-plugin-gate`
+# (static signatures before `dsh plugin add`) or of `bigclawd/dsh-security-guard`.
+# The difference is the scope of the second layer and its evidence: this plugin
+# hooks both `tools/pre-execute` and `tools/post-execute`, redacts leaked secrets
+# and internal addresses out of tool *results*, and records every decision in an
+# HMAC hash chain with a MACed anchor that detects truncation, not just edits.
+# The names are distinct on npm too — verified free at submission time, and
+# renamed from `dsh-security-gate` precisely because that one was taken.
+url: https://github.com/OWNER/dsh-security-scan
+name: OWNER/dsh-security-scan
 category: security
 description:
   en: 'Two-layer security for DSH: pre-install static audit of plugin sources graded A-D with refusal below the configured floor, plus a runtime guard over tools/pre-execute and tools/post-execute covering 158 rules, output redaction of leaked secrets and an HMAC hash-chained audit log.'
@@ -29,4 +39,4 @@ description:
 # rule: `latest/download/` takes the filename literally, so keep the asset name
 # version-free, or pin the release tag instead.
 #
-# tarball: https://github.com/OWNER/dsh-security-gate/releases/latest/download/dsh-security-gate.tgz
+# tarball: https://github.com/OWNER/dsh-security-scan/releases/latest/download/dsh-security-scan.tgz

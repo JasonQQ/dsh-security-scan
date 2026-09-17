@@ -1,6 +1,6 @@
 # Design
 
-Why the gate is shaped the way it is, and what each choice costs.
+Why the plugin is shaped the way it is, and what each choice costs.
 
 ## The two layers are one idea
 
@@ -81,10 +81,10 @@ The raw text is always view zero, so literal matching is still available.
 
 The two sides of the runtime guard are deliberately asymmetric.
 
-On the **input** side the gate decides about an *action*. Refusing is cheap and
+On the **input** side the guard decides about an *action*. Refusing is cheap and
 reversible: the model gets a reason and a fix, and tries something narrower.
 
-On the **output** side the gate decides about *information*. If a user asks to
+On the **output** side the guard decides about *information*. If a user asks to
 read a config file and the result is withheld, the honest outcome is that the
 model asks again, or reads it another way, and the user is annoyed. Blocking
 information is a worse trade than removing the specific thing that must not
@@ -103,7 +103,7 @@ slicing would misalign the moment a replacement happened.
 
 A guard that blocks on its first day gets turned off on its first day. A
 deployment can run `guard.mode: monitor`, let every decision be recorded without
-being refused, read `security_gate_log`, and learn which rules its own workflow
+being refused, read `security_scan_log`, and learn which rules its own workflow
 trips — then enforce with overrides already in hand.
 
 ## HMAC chain, and what it actually proves
@@ -136,7 +136,7 @@ The compiled output imports only `node:` builtins. `dependencies` is empty and
 CI fails the build if either changes.
 
 For a plugin whose entire job is to reduce supply-chain surface, shipping a
-dependency tree would defeat the claim, and it would make the gate itself the
+dependency tree would defeat the claim, and it would make the plugin itself the
 risk it exists to measure.
 
 The costs are real and were paid deliberately:
@@ -160,13 +160,13 @@ The costs are real and were paid deliberately:
   publishes, plus gzip through `node:zlib`.
 
 `src/dsh.ts` is where that cost is visible: the parts of the Cordis context and
-the tool registry the gate touches, written as minimal *structural* interfaces.
+the tool registry the plugin touches, written as minimal *structural* interfaces.
 They are structural on purpose — the harness's real objects satisfy them by
 shape, a harness revision that adds fields keeps working, and a revision that
 removes one fails at compile time here rather than at runtime in a user's
 session.
 
-## Where the gate enforces an install
+## Where the install check runs
 
 Auditing a plugin only matters if the audit stands between the package and the
 machine. `src/install.ts` recognizes the commands that install something —
@@ -175,8 +175,8 @@ installer invocation, with specs read from the following tokens. A substring
 check would fire on `grep -rn "npm install" README.md`.
 
 The interesting case is a **local source**. `dsh plugin add ./some-plugin` names
-bytes the gate can read right now, so it audits the real artifact inline and
-refuses on the real grade. For a registry spec the gate can only bind a grade to
+bytes the scanner can read right now, so it audits the real artifact inline and
+refuses on the real grade. For a registry spec the scanner can only bind a grade to
 the name that was audited earlier, which is weaker, and the refusal text says so
 rather than implying a guarantee it cannot make.
 

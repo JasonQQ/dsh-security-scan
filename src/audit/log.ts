@@ -15,7 +15,7 @@
  * exists to cover. The cost is one small `write` per intercepted call, and only
  * for calls that produce a record.
  *
- * @module dsh-security-gate/audit/log
+ * @module dsh-security-scan/audit/log
  */
 
 import { randomBytes } from 'node:crypto';
@@ -37,10 +37,10 @@ import { clip, parseJsonLoose, redact } from '../util/text.js';
 import { type ChainAnchor, buildAnchor, sealEntry, verifyChain } from './chain.js';
 
 /** Default data directory, relative to the user's DSH home. */
-export const DEFAULT_LOG_SUBDIR = 'security-gate';
+export const DEFAULT_LOG_SUBDIR = 'security-scan';
 
 /** Environment variable that supplies the audit key as hex. */
-export const KEY_ENV = 'DSH_SECURITY_GATE_KEY';
+export const KEY_ENV = 'DSH_SECURITY_SCAN_KEY';
 
 /** Default rotation threshold for the active segment, in bytes. */
 export const DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
@@ -129,7 +129,7 @@ export class AuditLog {
   /**
    * Open (creating if needed) the log rooted at `dir`.
    *
-   * A directory that cannot be created is not fatal. The gate's protection is
+   * A directory that cannot be created is not fatal. The plugin's protection is
    * worth more than its ledger, and a security plugin that refuses to load
    * because a home directory is read-only leaves the session with no guard at
    * all — the worst of both outcomes. The session then runs with an in-memory

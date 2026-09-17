@@ -48,7 +48,7 @@ function collectSpecifiers(dir, into = new Set()) {
   return into;
 }
 
-console.log('dsh-security-gate — inventory');
+console.log('dsh-security-scan — inventory');
 console.log('='.repeat(60));
 
 block('Static audit: line rules', tally(LINE_RULES, (rule) => rule.category));

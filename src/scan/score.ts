@@ -14,7 +14,7 @@
  * 3. Any `critical` finding pins the grade to `D` regardless of score. There is
  *    no arithmetic that makes a credential read plus an outbound POST acceptable.
  *
- * @module dsh-security-gate/scan/score
+ * @module dsh-security-scan/scan/score
  */
 
 import type { Finding, Grade, Severity } from '../types.js';

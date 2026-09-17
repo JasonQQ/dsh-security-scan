@@ -13,7 +13,7 @@
  *    clean-looking grade for content it never read, so truncation is carried on
  *    the result and surfaced in the report.
  *
- * @module dsh-security-gate/scan/load
+ * @module dsh-security-scan/scan/load
  */
 
 import { gunzipSync } from 'node:zlib';

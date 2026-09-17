@@ -1,25 +1,25 @@
 /**
- * The install gate: layer one's enforcement point.
+ * The install check: layer one's enforcement point.
  *
  * Auditing a plugin is only useful if the audit stands between the package and
  * the machine. This module recognizes the commands that install something, and
  * turns the registry's verdict into a decision the tool pipeline acts on.
  *
  * The interesting case is a **local source**. `dsh plugin add ./some-plugin`, a
- * path, or a local tarball names bytes the gate can read *right now*, so for
- * those the gate audits the real artifact inline and refuses on the real grade —
- * not on a name it hopes matches. For a registry spec the gate can only bind a
+ * path, or a local tarball names bytes the scanner can read *right now*, so for
+ * those it audits the real artifact inline and refuses on the real grade —
+ * not on a name it hopes matches. For a registry spec the scanner can only bind a
  * grade to the name that was audited earlier, which is weaker, and the refusal
  * text says so rather than implying a guarantee it cannot make.
  *
- * @module dsh-security-gate/install
+ * @module dsh-security-scan/install
  */
 
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 import type { Grade } from './types.js';
-import type { GateConfig } from './config.js';
+import type { PluginConfig } from './config.js';
 import type { AuditRegistry } from './scan/registry.js';
 import { type ScanResult, } from './types.js';
 import { auditSource } from './scan/engine.js';
@@ -180,11 +180,11 @@ function localPathOf(spec: string): string | undefined {
 /** Format the one-line reason a grade was refused. */
 function refusalReason(result: ScanResult, why: string): string {
   return [
-    `dsh-security-gate refused this install: ${why}`,
+    `dsh-security-scan refused this install: ${why}`,
     '',
     renderSummary(result),
     '',
-    'Run `security_gate_audit` on the source to see the full report, or change `install.blockAtOrBelow` if you have read the findings and accept the risk.',
+    'Run `security_scan_audit` on the source to see the full report, or change `install.blockAtOrBelow` if you have read the findings and accept the risk.',
   ].join('\n');
 }
 
@@ -199,7 +199,7 @@ function refusalReason(result: ScanResult, why: string): string {
 export async function enforceInstallAttempt(
   attempt: InstallAttempt,
   registry: AuditRegistry,
-  config: GateConfig,
+  config: PluginConfig,
 ): Promise<{ decision: InstallDecision; audited?: ScanResult }> {
   const floor: Grade = config.install.blockAtOrBelow;
   let audited: ScanResult | undefined;
@@ -218,7 +218,7 @@ export async function enforceInstallAttempt(
         return {
           decision: {
             action: 'ask',
-            reason: `dsh-security-gate could not audit the local source ${spec}: ${error instanceof Error ? error.message : String(error)}. Confirm before installing an unaudited package.`,
+            reason: `dsh-security-scan could not audit the local source ${spec}: ${error instanceof Error ? error.message : String(error)}. Confirm before installing an unaudited package.`,
           },
         };
       }
@@ -252,13 +252,13 @@ export async function enforceInstallAttempt(
         decision: {
           action: 'ask',
           reason: [
-            `dsh-security-gate has no ${stale ? 'current' : ''} audit for "${spec}".`,
+            `dsh-security-scan has no ${stale ? 'current' : ''} audit for "${spec}".`,
             stale
               ? `The last audit of "${spec}" is older than the ${Math.round(config.log.ttlMs / 3_600_000)}h validity window, and it described different bytes than a registry install would fetch.`
               : 'Nothing has been audited under this name in this session.',
             '',
-            `Run \`security_gate_audit\` with source "${spec}" first, then retry the install.`,
-            'A registry install fetches bytes the gate has not seen, so an audit binds to the name that was audited, not to what npm or git will serve.',
+            `Run \`security_scan_audit\` with source "${spec}" first, then retry the install.`,
+            'A registry install fetches bytes the scanner has not seen, so an audit binds to the name that was audited, not to what npm or git will serve.',
           ].join('\n'),
         },
       };
@@ -269,7 +269,7 @@ export async function enforceInstallAttempt(
     ? 'This command installs the dependencies declared by the current project, whose lifecycle scripts run on this machine.'
     : undefined;
   if (emptyNote !== undefined && config.guard.requireAuditForInstall) {
-    return { decision: { action: 'ask', reason: `dsh-security-gate: ${emptyNote} Confirm before proceeding.` } };
+    return { decision: { action: 'ask', reason: `dsh-security-scan: ${emptyNote} Confirm before proceeding.` } };
   }
   return { decision: { action: 'allow' }, ...(audited !== undefined ? { audited } : {}) };
 }

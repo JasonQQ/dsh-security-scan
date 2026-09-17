@@ -13,7 +13,7 @@
  * day one. A deployment can run it in `monitor`, read the audit log, and learn
  * which rules its own workflow trips before any call is refused.
  *
- * @module dsh-security-gate/guard/inspect
+ * @module dsh-security-scan/guard/inspect
  */
 
 import type { Detection, DetectionReport, GuardAction, JsonValue } from '../types.js';
@@ -90,8 +90,8 @@ export interface InspectOptions {
    * Rule ids that must not run for this call.
    *
    * Used when another part of the plugin has already made the decision: the
-   * install gate consults the audit registry, which a stateless rule cannot, so
-   * for an install command the gate owns the verdict and
+   * install check consults the audit registry, which a stateless rule cannot, so
+   * for an install command it owns the verdict and
    * `harness.plugin-install` would only duplicate it.
    */
   suppress?: ReadonlySet<string>;

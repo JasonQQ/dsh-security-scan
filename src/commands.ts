@@ -2,14 +2,14 @@
  * The `/security` command.
  *
  * The tools are for the model; this is for the person at the keyboard. It exists
- * because the two most important gate operations — checking a plugin before you
+ * because the two most important plugin operations — checking a plugin before you
  * install it, and confirming nobody edited the audit log — should not require
  * asking the model to do them.
  *
- * @module dsh-security-gate/commands
+ * @module dsh-security-scan/commands
  */
 
-import type { CommandResultLike, Disposer, GateContext } from './dsh.js';
+import type { CommandResultLike, Disposer, HarnessContext } from './dsh.js';
 import type { ToolDeps } from './tools.js';
 import { auditSource } from './scan/engine.js';
 import { renderReport, renderSummary } from './scan/report.js';
@@ -181,7 +181,7 @@ async function runSecurity(deps: ToolDeps, ruleIds: () => { guard: string[]; out
 
 /** Register `/security`. */
 export function applyCommand(
-  ctx: GateContext,
+  ctx: HarnessContext,
   deps: ToolDeps,
   ruleIds: () => { guard: string[]; output: string[] },
 ): Disposer[] {
@@ -189,7 +189,7 @@ export function applyCommand(
   return [
     ctx.commands.register({
       name: 'security',
-      description: 'Audit a plugin before installing it, and inspect the security gate',
+      description: 'Audit a plugin before installing it, and inspect the security scanner',
       input: { hint: '<audit|status|log|verify|rules>' },
       handler: (invocation) => runSecurity(deps, ruleIds, invocation.rawInput),
     }),

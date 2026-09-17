@@ -31,7 +31,7 @@ after(() => {
 
 /** Write a tree of files and return its root. */
 function tree(files) {
-  const root = mkdtempSync(join(tmpdir(), 'gate-scan-'));
+  const root = mkdtempSync(join(tmpdir(), 'scan-scan-'));
   roots.push(root);
   for (const [path, content] of Object.entries(files)) {
     const absolute = join(root, path);
@@ -375,7 +375,7 @@ test('looksBinary detects a NUL byte', () => {
 
 /** Write a buffer to a temp file and return its path. */
 function bufferToFile(buffer, extension) {
-  const root = mkdtempSync(join(tmpdir(), 'gate-arc-'));
+  const root = mkdtempSync(join(tmpdir(), 'scan-arc-'));
   roots.push(root);
   const path = join(root, `archive${extension}`);
   writeFileSync(path, buffer);

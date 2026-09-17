@@ -26,7 +26,7 @@ after(() => {
 
 /** A config rooted in a throwaway directory. */
 function config(overrides = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'gate-cfg-'));
+  const dir = mkdtempSync(join(tmpdir(), 'scan-cfg-'));
   dirs.push(dir);
   return normalizeConfig({ log: { dir }, ...overrides });
 }
@@ -350,8 +350,8 @@ test('output: internal addresses are redacted', () => {
   assert.ok(!audit.text.includes('10.0.0.53'), 'a private address must not survive redaction');
 });
 
-test('output: the gate\'s own audit key is withheld', () => {
-  const audit = auditToolResult('bash', `echo DSH_SECURITY_GATE_KEY=${'ab'.repeat(32)}`, false, config());
+test('output: the plugin\'s own audit key is withheld', () => {
+  const audit = auditToolResult('bash', `echo DSH_SECURITY_SCAN_KEY=${'ab'.repeat(32)}`, false, config());
   assert.ok(audit.detections.length > 0, 'the audit key must be treated as key material');
   assert.ok(!audit.text.includes('ab'.repeat(32)) || audit.action === 'block');
 });

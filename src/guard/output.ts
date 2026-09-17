@@ -4,9 +4,9 @@
  * Runs after a tool returns, over the result text, and decides whether that text
  * may enter the conversation. The asymmetry with the input side is deliberate:
  *
- * - On the **input** side the gate is deciding about an *action*, so refusing is
+ * - On the **input** side the guard is deciding about an *action*, so refusing is
  *   cheap and reversible — the model can try a different approach.
- * - On the **output** side the gate is deciding about *information*. Blocking a
+ * - On the **output** side the guard is deciding about *information*. Blocking a
  *   result the user explicitly asked for is hostile, and the model will often
  *   just ask again. So the default is to **redact and continue**: the secret
  *   never reaches the transcript or the model, and the call still succeeds.
@@ -14,11 +14,11 @@
  * `block` is reserved for a private key block, where partial redaction is
  * meaningless and any surviving byte is a live credential.
  *
- * @module dsh-security-gate/guard/output
+ * @module dsh-security-scan/guard/output
  */
 
 import type { Detection, DetectionReport, JsonValue } from '../types.js';
-import { type GateConfig, outputRuleAction } from '../config.js';
+import { type PluginConfig, outputRuleAction } from '../config.js';
 import { OUTPUT_RULES } from './rules.catalog.js';
 import { type ToolResultContext, appliesTo } from './rule-types.js';
 
@@ -71,7 +71,7 @@ export function auditToolResult(
   tool: string,
   text: string,
   isError: boolean,
-  config: GateConfig,
+  config: PluginConfig,
 ): OutputAudit {
   const mode = config.output.mode;
   if (mode === 'off' || text.length === 0) return { detections: [], text, redactions: 0 };

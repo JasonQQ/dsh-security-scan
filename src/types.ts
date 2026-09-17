@@ -1,11 +1,11 @@
 /**
- * Domain types shared by both layers of the gate.
+ * Domain types shared by both layers of the plugin.
  *
  * Everything here is plain data: the scanner, the runtime guard, the audit log
  * and the model-facing tools all speak this vocabulary, which is what lets the
  * same finding shape appear in a pre-install report and in a runtime log line.
  *
- * @module dsh-security-gate/types
+ * @module dsh-security-scan/types
  */
 
 /** Ordered severity. `critical` always forces a failing grade and a block. */

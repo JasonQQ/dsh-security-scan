@@ -35,7 +35,7 @@
  *    `matched` must be the exact substring the redactor will substitute, so
  *    output hits are never clipped, even when they are long.
  *
- * @module dsh-security-gate/guard/rules.catalog
+ * @module dsh-security-scan/guard/rules.catalog
  */
 
 import type { Severity } from '../types.js';
@@ -413,12 +413,12 @@ const RE_DSH_STATE =
 const RE_PLUGIN_FILES =
   /(?<![\w.])(?:cordis\.patch\.ya?ml|node_modules\/[^\s;|&"'`]+|\.dsh\/plugins\/[^\s;|&"'`]*|dsh-plugins?\/[^\s;|&"'`]*)/;
 
-/** The gate's own audit material. */
+/** The plugin's own audit material. */
 const RE_AUDIT_PATH =
-  /(?<![\w.])(?:audit\.log\.jsonl|audit\.key|audit\.[a-z0-9.]+|security-gate\/audit[^\s;|&"'`]*|dsh-security-gate\/(?:audit|state|lib\/audit)[^\s;|&"'`]*)/;
+  /(?<![\w.])(?:audit\.log\.jsonl|audit\.key|audit\.[a-z0-9.]+|security-scan\/audit[^\s;|&"'`]*|dsh-security-scan\/(?:audit|state|lib\/audit)[^\s;|&"'`]*)/;
 
-/** The gate's HMAC key. */
-const RE_AUDIT_ENV = /(?<![\w-])DSH_SECURITY_GATE_KEY(?![\w-])/;
+/** The plugin's HMAC key. */
+const RE_AUDIT_ENV = /(?<![\w-])DSH_SECURITY_SCAN_KEY(?![\w-])/;
 
 /** Killing the harness that is running the call. */
 const RE_KILL_DSH =
@@ -452,8 +452,16 @@ const RE_SIGNED_QUERY = /[?&](X-Amz-Signature|X-Amz-Credential|X-Goog-Signature|
 /** A cookie header or a `Cookie:` request line, reduced to one `name=value` pair. */
 const RE_COOKIE_PAIR = /^[ \t]*(?:Set-Cookie|Cookie)[ \t]*:[ \t]*([A-Za-z0-9_.-]{1,40})=([^\s;,]{20,})/gim;
 
-/** The gate's audit key, presented as a 64-hex-char value. */
-const RE_AUDIT_KEY_VALUE = /(?<![\w-])(?:audit[_-]?key|hmac[_-]?key|gate[_-]?key|signing[_-]?key)["']?\s*[:=]\s*["']?([0-9a-f]{64})(?![\w-])/gi;
+/**
+ * A key-shaped name assigned a 64-hex value.
+ *
+ * The `scan` and `security[_-]scan` spellings are this plugin's own key name. The
+ * older `gate` spelling is kept deliberately even though nothing here is called
+ * that any more: several unrelated DSH security plugins use `…gate…` for exactly
+ * this variable, and a leaked key is a leaked key regardless of whose plugin
+ * named it.
+ */
+const RE_AUDIT_KEY_VALUE = /(?<![\w-])(?:audit[_-]?key|hmac[_-]?key|signing[_-]?key|gate[_-]?key|scan[_-]?key|security[_-]?(?:scan|gate)[_-]?key)["']?\s*[:=]\s*["']?([0-9a-f]{64})(?![\w-])/gi;
 
 /** Any 64-hex-char value, checked for proximity to a key-shaped name in code. */
 const RE_HEX64 = /(?<![\w])[0-9a-f]{64}(?![\w])/gi;
@@ -734,7 +742,7 @@ const SECRET_INDEX: ReadonlyMap<string, SecretPattern> = new Map(
  *
  * A pattern matched by shape is bounded: the exact substring is redacted, so the
  * worst case is one leaked value whose shape is known. `critical` is reserved for
- * key material and for the gate's own HMAC key, where that bound does not hold.
+ * key material and for the plugin's own HMAC key, where that bound does not hold.
  */
 function redactionSeverity(severity: Severity): Severity {
   return severity === 'critical' ? 'high' : severity;
@@ -1917,7 +1925,7 @@ export const GUARD_RULES: GuardRule[] = [
   },
 
   // -------------------------------------------------------------------------
-  // harness-abuse — attacking the gate's own runtime
+  // harness-abuse — attacking the plugin's own runtime
   // -------------------------------------------------------------------------
   {
     id: 'harness.dsh-state-write',
@@ -1963,14 +1971,14 @@ export const GUARD_RULES: GuardRule[] = [
     detail:
       'A package manager is adding a dependency or a DSH plugin. Install lifecycle scripts run with the developer\'s privileges, and this call has not been through the gate\'s pre-install audit, so nothing has inspected the tarball yet. This rule records the install; whether it is refused or escalated to a prompt is owned by the install policy (`guard.requireAuditForInstall`), which can consult the audit registry and this rule cannot.',
     remediation:
-      'Run the pre-install audit on the package first (`security_gate_audit`, or `/security audit <source>`), read the report, and only then let the install proceed. Set `guard.requireAuditForInstall: true` to make the gate demand that automatically.',
+      'Run the pre-install audit on the package first (`security_scan_audit`, or `/security audit <source>`), read the report, and only then let the install proceed. Set `guard.requireAuditForInstall: true` to make the gate demand that automatically.',
     tools: ['bash', 'run_code'],
     test: (ctx) => {
       for (const view of ctx.views) {
         for (const target of installTargets(view)) {
           return {
             matched: safeClip(view, MATCH_LIMIT),
-            detail: `The call installs \`${target}\`, which the gate has not audited. Run the pre-install audit first.`,
+            detail: `The call installs \`${target}\`, which the scanner has not audited. Run the pre-install audit first.`,
           };
         }
       }
@@ -2015,14 +2023,14 @@ export const GUARD_RULES: GuardRule[] = [
     action: 'block',
     title: 'audit log or audit key tampered with',
     detail:
-      'The call writes to or truncates the gate\'s audit log, removes the audit key, or rewrites `DSH_SECURITY_GATE_KEY`. The log is hash-chained, so deleting a line or replacing the key breaks verification for every entry after it — and a forged key lets an attacker sign new entries that verify.',
+      'The call writes to or truncates the plugin\'s audit log, removes the audit key, or rewrites `DSH_SECURITY_SCAN_KEY`. The log is hash-chained, so deleting a line or replacing the key breaks verification for every entry after it — and a forged key lets an attacker sign new entries that verify.',
     remediation:
       'Treat the audit directory as append-only and read-only from the model side. Rotating the key is an operator action, taken outside the session with the log rotated and re-anchored first.',
     tools: ['*'],
     test: (ctx) => {
       const environment = viewMatch(ctx.views, RE_AUDIT_ENV);
       if (environment !== undefined && viewHas(ctx.views, /\b(?:export|unset|set|echo|printf|env|rm|truncate)\b/)) {
-        return { matched: environment, detail: 'The call names the gate\'s HMAC key together with a command that changes or prints it.' };
+        return { matched: environment, detail: 'The call names the plugin\'s HMAC key together with a command that changes or prints it.' };
       }
       for (const view of ctx.views) {
         const matched = RE_AUDIT_PATH.exec(view);
@@ -2076,7 +2084,7 @@ export const OUTPUT_RULES: OutputRule[] = [
     action: 'block',
     title: 'private key block in a tool result',
     detail:
-      'The result contains a complete PEM private key block. The gate withholds the result instead of redacting it, because a key whose body was partly substituted is still a key: the surrounding bytes stay in the transcript, and any copy of it compromises every host that trusts it.',
+      'The result contains a complete PEM private key block. The guard withholds the result instead of redacting it, because a key whose body was partly substituted is still a key: the surrounding bytes stay in the transcript, and any copy of it compromises every host that trusts it.',
     remediation:
       'Read only the public half (`*.pub`, `ssh-keygen -y -f key`) or pass the key by reference so it never enters the model context, and rotate the key if this result was already stored.',
     tools: ['*'],
@@ -2271,7 +2279,7 @@ export const OUTPUT_RULES: OutputRule[] = [
 
   // -------------------------------------------------------------------------
   // Topology, generic credential shapes, environment dumps, session material,
-  // and the gate's own key
+  // and the plugin's own key
   // -------------------------------------------------------------------------
   {
     id: 'leak.internal-topology',
@@ -2434,9 +2442,9 @@ export const OUTPUT_RULES: OutputRule[] = [
     category: 'harness-abuse',
     severity: 'critical',
     action: 'block',
-    title: 'the gate\'s audit key in a tool result',
+    title: 'the plugin\'s audit key in a tool result',
     detail:
-      'The result contains `DSH_SECURITY_GATE_KEY` or a 64-hex-char value presented as the audit key. That key is the HMAC used to chain the audit log: anyone holding it can append entries that verify, or rewrite an existing chain and re-sign it, which is exactly the tampering the chain exists to detect.',
+      'The result contains `DSH_SECURITY_SCAN_KEY` or a 64-hex-char value presented as the audit key. That key is the HMAC used to chain the audit log: anyone holding it can append entries that verify, or rewrite an existing chain and re-sign it, which is exactly the tampering the chain exists to detect.',
     remediation:
       'Keep the key in the environment of the harness process only. If it appeared in a result, rotate it and re-anchor the log from the last entry whose hash you can still vouch for.',
     tools: ['*'],
@@ -2453,15 +2461,15 @@ export const OUTPUT_RULES: OutputRule[] = [
         });
         if (hits.length >= 4) break;
       }
-      const envLine = /(?<![\w-])DSH_SECURITY_GATE_KEY\s*[=:]\s*\S+/.exec(ctx.text);
+      const envLine = /(?<![\w-])DSH_SECURITY_SCAN_KEY\s*[=:]\s*\S+/.exec(ctx.text);
       if (envLine !== null) {
-        hits.push({ matched: envLine[0], replacement: 'DSH_SECURITY_GATE_KEY=«redacted:audit-key»', label: 'audit-key' });
+        hits.push({ matched: envLine[0], replacement: 'DSH_SECURITY_SCAN_KEY=«redacted:audit-key»', label: 'audit-key' });
       }
       const bare = globalRe(RE_HEX64);
       while ((match = bare.exec(ctx.text)) !== null) {
         const index = match.index;
         const around = ctx.text.slice(Math.max(0, index - 60), index + 60).toLowerCase();
-        if (!/audit|hmac|security.?gate/.test(around)) continue;
+        if (!/audit|hmac|security.?gate|security.?scan|scan[_-]?key/.test(around)) continue;
         hits.push({ matched: match[0], replacement: '«redacted:audit-key»', label: 'audit-key' });
         if (hits.length >= 8) break;
       }

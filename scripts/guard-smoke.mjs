@@ -56,7 +56,7 @@ const BENIGN = [
  * unattended: credential-file reads, private and internal addresses, a
  * force-push, a destructive SQL statement. `ask` routes through the approval
  * seam and degrades to a denial when no approval channel exists, so it is a
- * gate — just one a human can open.
+ * check — just one a human can open.
  */
 const DANGEROUS = [
   ['bash', { command: 'rm -rf /', description: 'x' }, 'block'],
@@ -107,7 +107,7 @@ const ACTION_RANK = { warn: 0, ask: 1, block: 2 };
 
 /** Inspect a call the way the plugin does. */
 function inspect(tool, args) {
-  const config = normalizeConfig({ log: { dir: '/tmp/dsh-gate-smoke' } });
+  const config = normalizeConfig({ log: { dir: '/tmp/dsh-security-scan-smoke' } });
   const ctx = buildToolCallContext(tool, args);
   const hits = [];
   for (const rule of GUARD_RULES) {

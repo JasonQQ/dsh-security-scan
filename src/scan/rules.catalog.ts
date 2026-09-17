@@ -1,7 +1,7 @@
 /**
  * The static analysis signature catalog for the pre-install audit.
  *
- * This file is the gate's rule book and nothing else: pure data plus pure
+ * This file is the static scanner's rule book and nothing else: pure data plus pure
  * predicates, with no filesystem, network or console access, so a rule can be
  * read, reviewed and unit-tested in isolation. Every entry is a *claim about
  * capability*, never a verdict. A `critical` severity means "if this is what it
@@ -30,7 +30,7 @@
  * rule's `category` field, because the correlation layer selects evidence by
  * prefix (`input.fired('cred.')`, `input.evidenceFor('net.')`).
  *
- * @module dsh-security-gate/scan/rules.catalog
+ * @module dsh-security-scan/scan/rules.catalog
  */
 
 import type { Evidence, InstallScript, Severity } from '../types.js';

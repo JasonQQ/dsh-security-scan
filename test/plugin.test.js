@@ -24,7 +24,7 @@ after(() => {
 
 /** A throwaway directory. */
 function dir() {
-  const path = mkdtempSync(join(tmpdir(), 'gate-plugin-'));
+  const path = mkdtempSync(join(tmpdir(), 'scan-plugin-'));
   dirs.push(path);
   return path;
 }
@@ -129,20 +129,20 @@ function logLines(stub, dirPath) {
 
 test('the plugin declares its harness contract', async () => {
   const module = await import('../lib/index.js');
-  assert.equal(module.name, 'security-gate');
+  assert.equal(module.name, 'security-scan');
   assert.deepEqual(module.inject, ['tools']);
 });
 
 test('mounting registers four tools, one command, and one prompt section', () => {
   const stub = mount();
   assert.deepEqual(stub.tools.map((tool) => tool.name).sort(), [
-    'security_gate_audit',
-    'security_gate_log',
-    'security_gate_status',
-    'security_gate_verify',
+    'security_scan_audit',
+    'security_scan_log',
+    'security_scan_status',
+    'security_scan_verify',
   ]);
   assert.deepEqual(stub.commands.map((command) => command.name), ['security']);
-  assert.equal(stub.promptSection?.name, 'security-gate');
+  assert.equal(stub.promptSection?.name, 'security-scan');
 });
 
 test('every registered tool declares the shape the registry requires', () => {
@@ -196,7 +196,7 @@ test('a leaked secret is redacted in the accepted content', async () => {
   const stub = mount();
   const secret = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
   const { decision, dispatched } = await postExecute(stub, 'bash', `KEY=${secret}`);
-  assert.equal(dispatched, false, 'the gate replaces the result rather than deferring');
+  assert.equal(dispatched, false, 'the plugin replaces the result rather than deferring');
   assert.equal(decision.kind, 'accept');
   assert.ok(!decision.content[0].text.includes(secret));
 });
@@ -246,7 +246,7 @@ test('decisions land in the tamper-evident log', async () => {
 
   const entries = logLines(stub, logDir);
   const events = entries.map((entry) => entry.event);
-  assert.ok(events.includes('gate-loaded'), `expected a load record, got ${events.join(', ')}`);
+  assert.ok(events.includes('plugin-loaded'), `expected a load record, got ${events.join(', ')}`);
   assert.ok(events.includes('tool-blocked'), `expected a block record, got ${events.join(', ')}`);
   assert.ok(events.includes('result-redacted'), `expected a redaction record, got ${events.join(', ')}`);
 
@@ -263,9 +263,9 @@ test('a blocked call is not logged as a redaction and vice versa', async () => {
   assert.ok(!kinds.includes('output'), 'a clean result must not write an output record');
 });
 
-test('the audit tool grades a real tree and records it for the install gate', async () => {
+test('the audit tool grades a real tree and records it for the install check', async () => {
   const stub = mount();
-  const audit = stub.tools.find((tool) => tool.name === 'security_gate_audit');
+  const audit = stub.tools.find((tool) => tool.name === 'security_scan_audit');
   const root = dir();
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'stub-audit-target', version: '1.0.0' }));
   mkdirSync(join(root, 'src'), { recursive: true });
@@ -277,17 +277,17 @@ test('the audit tool grades a real tree and records it for the install gate', as
   assert.match(value.report, /# Pre-install audit/);
   assert.equal(typeof value.digest, 'string');
 
-  const attempt = stub.tools.find((tool) => tool.name === 'security_gate_audit');
+  const attempt = stub.tools.find((tool) => tool.name === 'security_scan_audit');
   assert.ok(attempt !== undefined);
 
-  const status = stub.tools.find((tool) => tool.name === 'security_gate_status');
+  const status = stub.tools.find((tool) => tool.name === 'security_scan_status');
   const statusValue = await status.execute({});
   assert.ok(statusValue.auditsHeld.some((held) => held.name === 'stub-audit-target'));
 });
 
 test('the audit tool refuses a malicious tree', async () => {
   const stub = mount();
-  const audit = stub.tools.find((tool) => tool.name === 'security_gate_audit');
+  const audit = stub.tools.find((tool) => tool.name === 'security_scan_audit');
   const root = dir();
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'stub-evil', version: '1.0.0' }));
   writeFileSync(
@@ -306,7 +306,7 @@ test('the verify tool reports a healthy chain and then a broken one', async () =
   const stub = stubContext();
   apply(stub.ctx, { log: { dir: logDir } });
 
-  const verify = stub.tools.find((tool) => tool.name === 'security_gate_verify');
+  const verify = stub.tools.find((tool) => tool.name === 'security_scan_verify');
   const healthy = await verify.execute({});
   assert.equal(healthy.ok, true);
 
@@ -325,7 +325,7 @@ test('the verify tool reports a healthy chain and then a broken one', async () =
 test('the log tool filters by kind', async () => {
   const stub = mount();
   await preExecute(stub, 'bash', { command: 'rm -rf /', description: 'x' });
-  const logTool = stub.tools.find((tool) => tool.name === 'security_gate_log');
+  const logTool = stub.tools.find((tool) => tool.name === 'security_scan_log');
   const guardOnly = await logTool.execute({ kind: 'guard' });
   assert.ok(guardOnly.entries.every((entry) => entry.kind === 'guard'));
   assert.ok(guardOnly.entries.length >= 1);
@@ -335,7 +335,7 @@ test('the status tool counts what happened', async () => {
   const stub = mount();
   await preExecute(stub, 'bash', { command: 'rm -rf /', description: 'x' });
   await preExecute(stub, 'bash', { command: 'ls', description: 'x' });
-  const status = stub.tools.find((tool) => tool.name === 'security_gate_status');
+  const status = stub.tools.find((tool) => tool.name === 'security_scan_status');
   const value = await status.execute({});
   assert.equal(value.counters.callsInspected, 2);
   assert.equal(value.counters.callsBlocked, 1);
@@ -351,7 +351,7 @@ test('the command surface dispatches subcommands', async () => {
 
   const status = await command.handler({ rawInput: 'status' });
   assert.equal(status.kind, 'success');
-  assert.match(status.text, /Security gate status/);
+  assert.match(status.text, /Security scan status/);
 
   const verify = await command.handler({ rawInput: 'verify' });
   assert.equal(verify.kind, 'success');
@@ -386,7 +386,7 @@ test('invalid configuration is refused with the accepted values', () => {
 test('a mount with no config uses the defaults', async () => {
   const stub = stubContext();
   apply(stub.ctx, undefined);
-  const status = stub.tools.find((tool) => tool.name === 'security_gate_status');
+  const status = stub.tools.find((tool) => tool.name === 'security_scan_status');
   const value = await status.execute({});
   assert.equal(value.guardMode, 'enforce');
   assert.equal(value.outputMode, 'enforce');
@@ -401,7 +401,7 @@ test('an install command for an unaudited package is allowed by default and aske
   const strict = mount({ guard: { requireAuditForInstall: true } });
   const asked = await preExecute(strict, 'bash', { command: 'dsh plugin add some-plugin', description: 'install' });
   assert.equal(asked.decision.kind, 'ask');
-  assert.match(asked.decision.reason, /security_gate_audit/);
+  assert.match(asked.decision.reason, /security_scan_audit/);
 });
 
 test('an install of a local malicious directory is denied before the installer runs', async () => {
@@ -422,7 +422,7 @@ test('a destructive command inside an install line is still caught by the guard'
   assert.equal(decision.kind, 'deny');
 });
 
-test('the gate distinguishes documented doc comments from live code', async () => {
+test('the plugin distinguishes documented doc comments from live code', async () => {
   const stub = mount();
   const { decision } = await preExecute(stub, 'bash', { command: '# rm -rf / is dangerous\necho safe', description: 'x' });
   assert.equal(decision.kind, 'allow', 'a comment must not be read as a command');

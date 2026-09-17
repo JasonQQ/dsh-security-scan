@@ -14,7 +14,7 @@
  * modification is impossible: any edit leaves a verifiable mark, and the verifier
  * names the first broken sequence number.
  *
- * @module dsh-security-gate/audit/chain
+ * @module dsh-security-scan/audit/chain
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
