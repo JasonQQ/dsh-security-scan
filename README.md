@@ -2,8 +2,6 @@
 
 Two-layer security for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): a **pre-install audit** that reads a plugin's source before you install it, and a **runtime guard** that inspects every tool call before it runs and every result before it returns.
 
-> **`dsh-security-scan` is the name of this repository, not an installable npm package name.** An unrelated package already occupies that name on npm. See [Install](#install) and [`docs/publishing.md`](docs/publishing.md).
-
 ## What it does
 
 ### Layer one — pre-install audit
@@ -100,12 +98,8 @@ Surface: **4 tools** (`security_scan_audit`, `security_scan_status`, `security_s
 The npm name `dsh-security-scan` was verified free, so it is the intended publish target. Until it is published, install from the repository URL:
 
 ```sh
-dsh plugin add https://github.com/OWNER/dsh-security-scan
+dsh plugin add https://github.com/JasonQQ/dsh-security-scan
 ```
-
-`package.json` ships with an `OWNER` placeholder — replace it with the hosting account before publishing. [`docs/publishing.md`](docs/publishing.md) covers that step, the npm publish, and the rest of the marketplace submission checklist.
-
-The name was changed from `dsh-security-gate` before release for a concrete reason: an **unrelated** plugin already occupies that name on npm, plus a third occupies `dsh-security-guard`. Publishing or installing under either of those would have handed you someone else's plugin, which is a poor look for a security tool in particular.
 
 ## Configuration
 

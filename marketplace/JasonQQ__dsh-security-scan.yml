@@ -5,10 +5,10 @@
 # marketplace repository are generated from `data/plugins/*.yml` — do not edit
 # them by hand, and do not run the generator yourself.
 #
-# Before submitting, replace both OWNER placeholders with the GitHub account that
-# hosts the repository. `url` must match the real repository exactly: the CI job
-# fetches `package.json` from that URL and checks that it declares `dsh.bundle`
-# (this repository does — see `cordis.patch.yml`). See `docs/publishing.md`.
+# `url` must match the real repository exactly: the CI job fetches `package.json`
+# from that URL and checks that it declares `dsh.bundle` (this repository does —
+# see `cordis.patch.yml`). The owner is filled in; nothing else here needs editing
+# before the pull request. See `docs/publishing.md`.
 #
 # Category `security` is the closest fit: the plugin's two layers are a
 # pre-install static audit and a runtime guard for tool calls. Categories are
@@ -27,8 +27,8 @@
 # HMAC hash chain with a MACed anchor that detects truncation, not just edits.
 # The names are distinct on npm too — verified free at submission time, and
 # renamed from `dsh-security-gate` precisely because that one was taken.
-url: https://github.com/OWNER/dsh-security-scan
-name: OWNER/dsh-security-scan
+url: https://github.com/JasonQQ/dsh-security-scan
+name: JasonQQ/dsh-security-scan
 category: security
 description:
   en: 'Two-layer security for DSH: pre-install static audit of plugin sources graded A-D with refusal below the configured floor, plus a runtime guard over tools/pre-execute and tools/post-execute covering 158 rules, output redaction of leaked secrets and an HMAC hash-chained audit log.'
@@ -39,4 +39,4 @@ description:
 # rule: `latest/download/` takes the filename literally, so keep the asset name
 # version-free, or pin the release tag instead.
 #
-# tarball: https://github.com/OWNER/dsh-security-scan/releases/latest/download/dsh-security-scan.tgz
+# tarball: https://github.com/JasonQQ/dsh-security-scan/releases/latest/download/dsh-security-scan.tgz

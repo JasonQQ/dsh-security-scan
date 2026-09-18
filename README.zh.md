@@ -2,8 +2,6 @@
 
 DeepSeek Harness 的两层安全插件：**安装前体检**——装之前先把插件源码读一遍；**运行时护栏**——每次工具调用执行前拦一遍，每个结果返回前审一遍。
 
-> **`dsh-security-scan` 是本仓库的名字，不是可安装的 npm 包名。** npm 上该名字已被一个无关的包占用。见[安装](#安装)与 [`docs/publishing.md`](docs/publishing.md)。
-
 ## 功能
 
 ### 第一层——安装前体检
@@ -99,12 +97,10 @@ Audit chain verification FAILED
 npm 上的 `dsh-security-scan` 已确认未被占用，是计划中的发布名。在正式发布之前，请从仓库地址安装：
 
 ```sh
-dsh plugin add https://github.com/OWNER/dsh-security-scan
+dsh plugin add https://github.com/JasonQQ/dsh-security-scan
 ```
 
-`package.json` 里保留了 `OWNER` 占位符，发布前请替换为托管账号。[`docs/publishing.md`](docs/publishing.md) 写清了这一步、npm 发布，以及市场投稿清单的其余部分。
-
-改名的原因很具体：npm 上 `dsh-security-gate` **已被一个无关的插件占用**，`dsh-security-guard` 也被第三个占用。以这两个名字发布或安装，用户拿到的都会是别人的插件——对一个安全工具来说尤其难堪。
+仓库地址是 [JasonQQ/dsh-security-scan](https://github.com/JasonQQ/dsh-security-scan)。[`docs/publishing.md`](docs/publishing.md) 写清了 npm 发布，以及市场投稿清单的其余部分。
 
 ## 配置
 

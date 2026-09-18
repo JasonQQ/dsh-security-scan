@@ -5,21 +5,18 @@ Everything below is required before this repository can be submitted to
 Each item is either something only the repository owner can do, or something the
 marketplace's CI checks.
 
-## 1. Required: replace the `OWNER` placeholder
+## 1. Done: the repository identity
 
-`package.json` currently points at `https://github.com/OWNER/dsh-security-scan`.
-Replace `OWNER` in the `repository`, `homepage` and `bugs` fields with the GitHub
-account that will host the repository.
+`package.json` and the marketplace entry both point at
+`https://github.com/JasonQQ/dsh-security-scan`, and the entry's `name` is
+`JasonQQ/dsh-security-scan`. Nothing here needs editing before submitting — the
+step is recorded because the CI job fetches `package.json` from that exact URL
+and fails if the entry's `url` disagrees with it, so if the repository ever moves,
+these three places move with it:
 
-```sh
-# from the repository root
-sed -i '' 's|github.com/OWNER/|github.com/<your-handle>/|g' package.json
-```
-
-The marketplace entry in `marketplace/dsh-security-scan.yml` uses the same
-placeholder and must match the real repository URL **exactly** — the CI job
-fetches `package.json` from that URL and fails if `url` and `name` disagree with
-the repository it points at.
+- `package.json` — `repository`, `homepage`, `bugs`
+- `marketplace/JasonQQ__dsh-security-scan.yml` — `url`, `name`
+- `cordis.patch.yml` — the inserted row's `name` (the package name, not the repo)
 
 ## 2. Required: publish to npm under a name that was actually free
 
@@ -46,7 +43,7 @@ curl -s https://api.github.com/repos/awesome-dsh-plugin/awesome-dsh-plugin/conte
 is not a free name next month. If `dsh-security-scan` is taken by the time you
 publish, pick another and change it in three places — `package.json`'s `name`,
 `cordis.patch.yml`'s `name`, and the install line in both READMEs — plus the URL
-and name fields of `marketplace/dsh-security-scan.yml`.
+and name fields of `marketplace/JasonQQ__dsh-security-scan.yml`.
 
 To publish:
 
@@ -97,7 +94,7 @@ node --test test/
 ```
 
 Then confirm the numbers quoted in `README.md`, `README.zh.md` and
-`marketplace/dsh-security-scan.yml` against reality:
+`marketplace/JasonQQ__dsh-security-scan.yml` against reality:
 
 ```sh
 node --test test/ 2>&1 | tail -20
@@ -111,7 +108,7 @@ is the one thing that gets an otherwise-good plugin sent back.
 ## 6. The submission itself
 
 Open one pull request adding one file, `data/plugins/<owner>__<repo>.yml`, copied
-from `marketplace/dsh-security-scan.yml`. Do not edit either README in the
+from `marketplace/JasonQQ__dsh-security-scan.yml`. Do not edit either README in the
 marketplace repository — they are generated from `data/plugins/*.yml`.
 
 The `description.en` line contains a `: ` only if you introduce one; if you do,
