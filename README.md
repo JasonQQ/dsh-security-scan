@@ -14,11 +14,11 @@ A grade `D` is refused. A local source named by an install command is audited **
 
 ```console
 $ /security audit ./some-plugin
-# Pre-install audit: some-plugin@1.0.0
+# 安装前体检 / Pre-install audit: some-plugin@1.0.0
 
-**Trust grade: D** (score 0/100 — refused: critical risk signals)
+**信任评级 / Trust grade: D** (评分 / score 0/100 — 拒绝：存在严重风险信号 / refused: critical risk signals)
 
-> **Install refused.** This source met the configured refusal floor.
+> **拒绝安装。** 该来源达到了配置的拒绝阈值。 … / **Install refused.** This source met the configured refusal floor. …
 
 ## What this plugin can reach
 
@@ -137,7 +137,17 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
           dir: ~/.dsh/security-scan
           maxBytes: 4194304
           ttlMs: 86400000          # how long an audit record stays usable
+        report:
+          locale: bilingual        # bilingual | en | zh — language of the human-readable report
 ```
+
+### Language
+
+Reports default to **bilingual** — Chinese and English together, Chinese first. Short fields join with ` / ` and longer prose gets a labelled line per language, so a bilingual report stays scannable instead of doubling in length. Set `report.locale` to `en` or `zh` for a single language.
+
+Two things stay English on purpose: the **JSON report and the audit log**, whose field names are the log's vocabulary and would stop being greppable if they followed a config value; and the **tool descriptions and system-prompt section**, which are instructions to a model in a harness whose own prompts are English.
+
+Rule text is translated per rule id. A rule that has not been translated yet renders in English rather than being omitted, and the coverage is reported by `/security status` — so a gap is visible rather than silently degrading half a report.
 
 **Start in `monitor` mode.** It records every decision without refusing anything, so you can read `/security status` and see which rules your own workflow trips before any call is blocked. A guard that blocks on its first day gets turned off on its first day.
 

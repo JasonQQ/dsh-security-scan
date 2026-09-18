@@ -102,7 +102,7 @@ async function runSecurity(deps: ToolDeps, ruleIds: () => { guard: string[]; out
             digest: result.digest,
           },
         });
-        return { kind: result.blocked ? 'error' : 'success', text: renderReport(result) };
+        return { kind: result.blocked ? 'error' : 'success', text: renderReport(result, deps.config.report.locale) };
       } catch (error) {
         return { kind: 'error', text: `Audit failed: ${error instanceof Error ? error.message : String(error)}` };
       }

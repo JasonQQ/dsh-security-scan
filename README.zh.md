@@ -136,7 +136,17 @@ dsh plugin add https://github.com/OWNER/dsh-security-scan
           dir: ~/.dsh/security-scan
           maxBytes: 4194304
           ttlMs: 86400000          # 体检记录的有效期
+        report:
+          locale: bilingual        # bilingual | en | zh —— 人类可读报告的语言
 ```
+
+### 语言
+
+报告默认**中英双语**——中文在前。短字段用 ` / ` 连接，较长的说明每种语言各占一行，所以双语报告依然能扫读，而不是变成两倍长。想只要一种语言就把 `report.locale` 设成 `en` 或 `zh`。
+
+有两处**刻意保留英文**：**JSON 报告与审计日志**——它们的字段名就是日志的词汇表，跟着配置走会让已存下来的日志无法 grep；以及**工具描述与系统提示栏区**——它们是给模型的指令，而 harness 自身的提示词就是英文。
+
+规则文案按 rule id 翻译。尚未翻译的规则会回退成英文而不是被省略，覆盖率由 `/security status` 报出——缺口是可见的，不会悄悄让半份报告降级。
 
 **请从 `monitor` 模式开始。** 它记录每一条决策但不拒绝任何调用，你可以先读 `/security status`，看清自己的日常工作流会撞上哪些规则，再开始拦。第一天就拦人的护栏，第一天就会被关掉。
 

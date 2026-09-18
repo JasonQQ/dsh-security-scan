@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import type { Grade, GuardAction } from './types.js';
+import { LOCALES, type Locale } from './i18n.js';
 import type { GuardMode } from './guard/inspect.js';
 import { isRecord } from './util/text.js';
 
@@ -70,6 +71,17 @@ export interface PluginConfig {
     /** How long an audit record stays usable, in milliseconds. */
     ttlMs: number;
   };
+  report: {
+    /**
+     * How much language a human-readable report carries.
+     *
+     * `bilingual` (the default) emits Chinese and English together, because the
+     * reader deciding whether to install a plugin should not have to read a
+     * second language to do it. `en` and `zh` emit one language. Machine-readable
+     * output — the JSON report, the audit log, rule ids — is always English.
+     */
+    locale: Locale;
+  };
 }
 
 /** The configuration applied when no `config` row is present. */
@@ -96,6 +108,9 @@ export const DEFAULT_CONFIG: PluginConfig = {
     maxBytes: 4 * 1024 * 1024,
     ttlMs: 24 * 60 * 60 * 1000,
   },
+  report: {
+    locale: 'bilingual',
+  },
 };
 
 /** Accepted values for each enum, for error messages. */
@@ -105,6 +120,7 @@ const ACCEPTED = {
   action: ['block', 'ask', 'warn', 'off'],
   outputSetting: ['warn', 'block', 'off'],
   grade: ['A', 'B', 'C', 'D'],
+  locale: LOCALES,
 } as const;
 
 /** Raised when configuration cannot be honoured. */
@@ -212,7 +228,7 @@ export function normalizeConfig(raw: unknown): PluginConfig {
   if (raw === undefined || raw === null) return DEFAULT_CONFIG;
   if (!isRecord(raw)) throw new ConfigError('config must be a mapping');
 
-  rejectUnknown(raw, ['guard', 'output', 'install', 'log'], '');
+  rejectUnknown(raw, ['guard', 'output', 'install', 'log', 'report'], '');
 
   const guardRaw = raw['guard'];
   if (guardRaw !== undefined && !isRecord(guardRaw)) throw new ConfigError('guard must be a mapping');
@@ -228,6 +244,11 @@ export function normalizeConfig(raw: unknown): PluginConfig {
   if (installRaw !== undefined && !isRecord(installRaw)) throw new ConfigError('install must be a mapping');
   const install = (installRaw ?? {}) as Record<string, unknown>;
   rejectUnknown(install, ['blockAtOrBelow', 'allow', 'fetch', 'autoAudit'], 'install.');
+
+  const reportRaw = raw['report'];
+  if (reportRaw !== undefined && !isRecord(reportRaw)) throw new ConfigError('report must be a mapping');
+  const report = (reportRaw ?? {}) as Record<string, unknown>;
+  rejectUnknown(report, ['locale'], 'report.');
 
   const logRaw = raw['log'];
   if (logRaw !== undefined && !isRecord(logRaw)) throw new ConfigError('log must be a mapping');
@@ -255,6 +276,9 @@ export function normalizeConfig(raw: unknown): PluginConfig {
       allow: readStringList(install['allow'], 'install.allow'),
       fetch: readBoolean(install['fetch'], 'install.fetch', DEFAULT_CONFIG.install.fetch),
       autoAudit: readStringList(install['autoAudit'], 'install.autoAudit'),
+    },
+    report: {
+      locale: readEnum(report['locale'], ACCEPTED.locale, 'report.locale', DEFAULT_CONFIG.report.locale),
     },
     log: {
       dir: resolveDir(log['dir'], DEFAULT_CONFIG.log.dir),

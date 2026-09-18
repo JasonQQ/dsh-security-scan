@@ -37,6 +37,12 @@ on npm and unlisted in the marketplace at the time of the rename.
 - Segment rotation keeps the chain verifiable across files.
 - Key from `DSH_SECURITY_SCAN_KEY` or a `0600` key file; an unwritable location degrades to an in-memory session key with the failure reported rather than preventing the plugin from loading.
 
+**Language**
+
+- Reports are bilingual by default: Chinese first, English second, with short fields joined on one line and longer prose on a labelled line per language. `report.locale` selects `bilingual` (default), `en` or `zh`.
+- The JSON report and the audit log stay English regardless — their field names are the log's vocabulary — as do the tool descriptions and the system-prompt section, which are instructions to a model.
+- Rule text is translated per rule id in `rules.zh.ts` for each catalog. An untranslated rule falls back to English rather than being omitted, and `/security status` reports the coverage so a gap is visible.
+
 **Surface**
 
 - 4 tools: `security_scan_audit`, `security_scan_status`, `security_scan_log`, `security_scan_verify`.

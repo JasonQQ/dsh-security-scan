@@ -32,9 +32,13 @@ import type { AuditKind, Grade, JsonValue, Severity } from './types.js';
 import type { AuditLog } from './audit/log.js';
 import type { AuditRegistry } from './scan/registry.js';
 import type { PluginStats } from './state.js';
+import { type Locale, type RuleTextZh, actionName, t, translationCoverage } from './i18n.js';
 import { auditSource } from './scan/engine.js';
+import { LINE_RULES, PACKAGE_RULES } from './scan/rules.catalog.js';
+import { SCAN_RULE_TEXT_ZH } from './scan/rules.zh.js';
+import { GUARD_RULES } from './guard/rules.catalog.js';
+import { GUARD_RULE_TEXT_ZH } from './guard/rules.zh.js';
 import { renderJson, renderReport, renderSummary } from './scan/report.js';
-import { normalizeSpec } from './scan/registry.js';
 
 /** Everything the tools need from the plugin's shared state. */
 export interface ToolDeps {
@@ -166,7 +170,8 @@ export function applyTools(ctx: HarnessContext, deps: ToolDeps): Disposer[] {
           truncated: result.truncated,
         },
       });
-      const body = format === 'json' ? renderJson(result) : format === 'report' ? renderReport(result) : renderSummary(result);
+      const locale = deps.config.report.locale;
+      const body = format === 'json' ? renderJson(result) : format === 'report' ? renderReport(result, locale) : renderSummary(result, locale);
       return {
         source: result.source.value,
         grade: result.grade,
@@ -226,6 +231,14 @@ export function applyTools(ctx: HarnessContext, deps: ToolDeps): Disposer[] {
           ...(verification.ok ? {} : { chainProblem: verification.reason ?? 'unknown' }),
           ...(deps.log.lastWriteError !== undefined ? { writeError: deps.log.lastWriteError } : {}),
         },
+        locale: deps.config.report.locale,
+        // Reported rather than hidden: a rule without Chinese text renders in
+        // English only, and a bilingual report with untranslated findings is a
+        // gap the reader should be able to see rather than infer.
+        translations: {
+          guard: coverageOf(GUARD_RULE_TEXT_ZH, GUARD_RULES.map((rule) => rule.id)),
+          scan: coverageOf(SCAN_RULE_TEXT_ZH, [...LINE_RULES, ...PACKAGE_RULES].map((rule) => rule.id)),
+        },
         auditsHeld: records.slice(0, 10).map((record) => ({
           key: record.key,
           name: record.name ?? null,
@@ -235,7 +248,7 @@ export function applyTools(ctx: HarnessContext, deps: ToolDeps): Disposer[] {
         })),
       } as JsonValue;
     },
-    render: (_args, value) => [{ type: 'text', text: renderStatusText(value) }],
+    render: (_args, value) => [{ type: 'text', text: renderStatusText(value, deps.config.report.locale) }],
   })));
 
   disposers.push(ctx.tools.register(definePluginTool<{ limit?: number; kind?: AuditKind; event?: string }, JsonValue>({
@@ -284,7 +297,7 @@ export function applyTools(ctx: HarnessContext, deps: ToolDeps): Disposer[] {
         total: deps.log.status().entries,
       };
     },
-    render: (_args, value) => [{ type: 'text', text: renderLogText(value) }],
+    render: (_args, value) => [{ type: 'text', text: renderLogText(value, deps.config.report.locale) }],
   })));
 
   disposers.push(ctx.tools.register(definePluginTool<Record<string, never>, JsonValue>({
@@ -327,69 +340,128 @@ export function applyTools(ctx: HarnessContext, deps: ToolDeps): Disposer[] {
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
       } as JsonValue;
     },
-    render: (_args, value) => [{ type: 'text', text: renderVerifyText(value) }],
+    render: (_args, value) => [{ type: 'text', text: renderVerifyText(value, deps.config.report.locale) }],
   })));
 
   return disposers;
 }
 
-/** Render the status value as text. */
-export function renderStatusText(value: JsonValue): string {
+/**
+ * Render the status value as text.
+ *
+ * @param value - the status payload.
+ * @param locale - how much language to emit; defaults to bilingual.
+ * @returns the status text.
+ */
+/**
+ * Translation coverage as JSON, without the missing-id list.
+ *
+ * The list is useful in `npm run inventory` but not in a status line, and a
+ * hundred ids would bury the number that matters.
+ */
+function coverageOf(table: Readonly<Record<string, RuleTextZh>>, ids: readonly string[]): JsonValue {
+  const coverage = translationCoverage(table, ids);
+  return { translated: coverage.translated, total: coverage.total, missing: coverage.missing.length };
+}
+
+export function renderStatusText(value: JsonValue, locale: Locale = 'bilingual'): string {
   const record = value as Record<string, JsonValue>;
   const counters = record['counters'] as Record<string, number>;
   const log = record['log'] as Record<string, JsonValue>;
   const top = record['topRules'] as { id: string; count: number }[];
   const audits = record['auditsHeld'] as Record<string, JsonValue>[];
+  const yes = t(locale, 'yes', '是');
+  const no = t(locale, 'no', '否');
   const lines = [
-    `Security scan status`,
-    `  guard mode: ${String(record['guardMode'])} | output mode: ${String(record['outputMode'])} | install floor: ${String(record['installFloor'])}`,
-    `  audit required before install: ${String(record['requireAuditForInstall'])} | outbound fetch for audits: ${String(record['fetchEnabled'])}`,
-    `  calls inspected ${counters['callsInspected']}, blocked ${counters['callsBlocked']}, asked ${counters['callsAsked']}, warned ${counters['callsWarned']}`,
-    `  results audited ${counters['resultsAudited']}, redacted ${counters['resultsRedacted']}, blocked ${counters['resultsBlocked']}`,
-    `  log: ${String(log['entries'])} entries at ${String(log['dir'])} (key: ${String(log['keySource'])})`,
-    `  chain: ${log['chainOk'] === true ? 'verified' : `BROKEN — ${String(log['chainProblem'] ?? 'unknown')}`}`,
-    `  rule overrides: ${Object.keys(record['guardRuleOverrides'] as object).length} guard, ${Object.keys(record['outputRuleOverrides'] as object).length} output`,
+    t(locale, 'Security scan status', '安全扫描状态'),
+    `  ${t(locale, 'guard mode', '护栏模式')}: ${actionName(locale, String(record['guardMode']))} | ${t(locale, 'output mode', '输出模式')}: ${actionName(locale, String(record['outputMode']))} | ${t(locale, 'install floor', '安装阈值')}: ${String(record['installFloor'])}`,
+    `  ${t(locale, 'audit required before install', '安装前强制体检')}: ${record['requireAuditForInstall'] === true ? yes : no} | ${t(locale, 'outbound fetch for audits', '体检时允许联网下载')}: ${record['fetchEnabled'] === true ? yes : no} | ${t(locale, 'report locale', '报告语言')}: ${String(record['locale'] ?? 'bilingual')}`,
+    `  ${t(locale, 'calls inspected', '已检查调用')} ${counters['callsInspected']}, ${t(locale, 'blocked', '拒绝')} ${counters['callsBlocked']}, ${t(locale, 'asked', '升级审批')} ${counters['callsAsked']}, ${t(locale, 'warned', '仅记录')} ${counters['callsWarned']}`,
+    `  ${t(locale, 'results audited', '已审计结果')} ${counters['resultsAudited']}, ${t(locale, 'redacted', '已打码')} ${counters['resultsRedacted']}, ${t(locale, 'blocked', '扣留')} ${counters['resultsBlocked']}`,
+    `  ${t(locale, 'log', '日志')}: ${String(log['entries'])} ${t(locale, 'entries at', '条，位于')} ${String(log['dir'])} (${t(locale, 'key', '密钥')}: ${String(log['keySource'])})`,
+    `  ${t(locale, 'chain', '哈希链')}: ${log['chainOk'] === true ? t(locale, 'verified', '校验通过') : t(locale, `BROKEN — ${String(log['chainProblem'] ?? 'unknown')}`, `已断裂 —— ${String(log['chainProblem'] ?? '原因未知')}`)}`,
+    `  ${t(locale, 'rule overrides', '规则覆盖')}: ${Object.keys(record['guardRuleOverrides'] as object).length} ${t(locale, 'guard', '护栏')}, ${Object.keys(record['outputRuleOverrides'] as object).length} ${t(locale, 'output', '输出')}`,
   ];
+  const translations = record['translations'] as Record<string, JsonValue> | undefined;
+  if (translations !== undefined) {
+    const coverage = (label: { en: string; zh: string }, item: JsonValue | undefined): string | undefined => {
+      if (item === undefined) return undefined;
+      const part = item as Record<string, JsonValue>;
+      return `${t(locale, label.en, label.zh)} ${String(part['translated'])}/${String(part['total'])}`;
+    };
+    const parts = [
+      coverage({ en: 'guard', zh: '护栏' }, translations['guard']),
+      coverage({ en: 'static', zh: '静态' }, translations['scan']),
+    ].filter((part): part is string => part !== undefined);
+    if (parts.length > 0) {
+      lines.push(`  ${t(locale, 'Chinese rule text', '规则中文文案')}: ${parts.join(', ')}`);
+    }
+  }
   if (top.length > 0) {
-    lines.push('  most frequent detections:');
+    lines.push(`  ${t(locale, 'most frequent detections', '最常触发的检测')}:`);
     for (const item of top) lines.push(`    ${item.count}× ${item.id}`);
   }
   if (audits.length > 0) {
-    lines.push('  audits held:');
+    lines.push(`  ${t(locale, 'audits held', '持有的体检记录')}:`);
     for (const audit of audits) {
-      lines.push(`    ${String(audit['key'])} — grade ${String(audit['grade'])} (${String(audit['score'])}/100) at ${String(audit['scannedAt'])}`);
+      lines.push(`    ${String(audit['key'])} — ${t(locale, 'grade', '评级')} ${String(audit['grade'])} (${String(audit['score'])}/100) @ ${String(audit['scannedAt'])}`);
     }
   }
   return lines.join('\n');
 }
 
-/** Render the log value as text. */
-export function renderLogText(value: JsonValue): string {
+/**
+ * Render the log value as text.
+ *
+ * Entries themselves stay as recorded: a log line's summary is written once, at
+ * the moment the decision was taken, and re-rendering it in another language
+ * later would put words in the log's mouth.
+ *
+ * @param value - the log payload.
+ * @param locale - how much language to emit; defaults to bilingual.
+ * @returns the log text.
+ */
+export function renderLogText(value: JsonValue, locale: Locale = 'bilingual'): string {
   const record = value as Record<string, JsonValue>;
   const entries = record['entries'] as Record<string, JsonValue>[];
-  if (entries.length === 0) return 'The audit log holds no matching entries.';
-  const lines = [`Audit log (${entries.length} of ${String(record['total'])} entries shown)`, ''];
+  if (entries.length === 0) return t(locale, 'The audit log holds no matching entries.', '审计日志中没有匹配的记录。');
+  const shown = entries.length;
+  const total = String(record['total']);
+  const lines = [
+    t(locale, `Audit log (${shown} of ${total} entries shown)`, `审计日志（显示 ${shown} / 共 ${total} 条）`),
+    '',
+  ];
   for (const entry of entries) {
     lines.push(`#${String(entry['seq'])} ${String(entry['ts'])} [${String(entry['kind'])}] ${String(entry['event'])}`);
     lines.push(`  ${String(entry['summary'])}`);
-    lines.push(`  hash ${String(entry['hash'])}…`);
+    lines.push(`  ${t(locale, 'hash', '哈希')} ${String(entry['hash'])}…`);
   }
   return lines.join('\n');
 }
 
-/** Render the verify value as text. */
-export function renderVerifyText(value: JsonValue): string {
+/**
+ * Render the verify value as text.
+ *
+ * @param value - the verification payload.
+ * @param locale - how much language to emit; defaults to bilingual.
+ * @returns the verification text.
+ */
+export function renderVerifyText(value: JsonValue, locale: Locale = 'bilingual'): string {
   const record = value as Record<string, JsonValue>;
   if (record['ok'] === true) {
-    return `Audit chain verified: ${String(record['entries'])} entries, head ${String(record['head']).slice(0, 24)}…`;
+    const entries = String(record['entries']);
+    const head = String(record['head']).slice(0, 24);
+    return t(
+      locale,
+      `Audit chain verified: ${entries} entries, head ${head}…`,
+      `审计哈希链校验通过：${entries} 条记录，链头 ${head}……`,
+    );
   }
+  const brokenAt = record['brokenAt'] === undefined ? t(locale, 'unknown', '未知') : String(record['brokenAt']);
   return [
-    `Audit chain verification FAILED`,
-    `  entries: ${String(record['entries'])}`,
-    `  first untrustworthy sequence: ${record['brokenAt'] === undefined ? 'unknown' : String(record['brokenAt'])}`,
-    `  reason: ${String(record['reason'] ?? 'unknown')}`,
+    t(locale, 'Audit chain verification FAILED', '审计哈希链校验失败'),
+    `  ${t(locale, 'entries', '记录数')}: ${String(record['entries'])}`,
+    `  ${t(locale, 'first untrustworthy sequence', '第一个不可信序号')}: ${brokenAt}`,
+    `  ${t(locale, 'reason', '原因')}: ${String(record['reason'] ?? t(locale, 'unknown', '未知'))}`,
   ].join('\n');
 }
-
-/** Normalize a spec for the audit tool, re-exported for the command surface. */
-export { normalizeSpec };

@@ -181,7 +181,9 @@ test('the digest is stable for identical content and changes when content change
 
 test('the report lists capabilities before findings and names the grade', async () => {
   const result = await auditSource(credentialStealer());
-  const report = renderReport(result);
+  // Pinned to English: this test is about structure and ordering, and a
+  // bilingual heading would make the anchors below depend on word order.
+  const report = renderReport(result, 'en');
   assert.match(report, /\*\*Trust grade: D\*\*/);
   assert.match(report, /## What this plugin can reach/);
   assert.match(report, /File paths read:/);
