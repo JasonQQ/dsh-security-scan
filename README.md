@@ -141,6 +141,14 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
           locale: bilingual        # bilingual | en | zh — language of the human-readable report
 ```
 
+### What a D grade reports
+
+A `D` grade is a verdict, so the report leads with the reason: a **Most severe risk** section naming the one finding that decided it, its consequence in plain language, and the facts that make it worse — that it runs from an install-time hook, that the code doing it is obfuscated, that it also arranges to persist, that it reaches the instance-metadata endpoint, that the scan was partial. Each of those appears only when the result actually supports it, and the choice of "worst" is deterministic (worst severity, then category impact, then anchor count, then rule id), so two runs of the same scan name the same risk.
+
+Every sentence is composed from facts already in the scan result. Nothing is inferred and nothing is generated.
+
+A `C` grade deliberately does not get the section: `C` means "review this", and `D` means "here is the thing".
+
 ### Language
 
 Reports default to **bilingual** — Chinese and English together, Chinese first. Short fields join with ` / ` and longer prose gets a labelled line per language, so a bilingual report stays scannable instead of doubling in length. Set `report.locale` to `en` or `zh` for a single language.

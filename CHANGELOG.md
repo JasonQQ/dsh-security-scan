@@ -37,6 +37,11 @@ on npm and unlisted in the marketplace at the time of the rename.
 - Segment rotation keeps the chain verifiable across files.
 - Key from `DSH_SECURITY_SCAN_KEY` or a `0600` key file; an unwritable location degrades to an in-memory session key with the failure reported rather than preventing the plugin from loading.
 
+**What a D grade reports**
+
+- A `D` report now leads with a **Most severe risk** section: the one finding that decided the grade, its consequence in plain language, and the aggravating facts the result actually supports (runs at install time, obfuscated, persists, reaches the instance-metadata endpoint, partial scan). The choice is deterministic — severity, then category impact, then anchor count, then rule id — so the same scan names the same risk twice.
+- Every sentence is composed from facts already in the `ScanResult`; nothing is inferred or generated. The summary carries a one-line version, and a `C` deliberately gets no section.
+
 **Language**
 
 - Reports are bilingual by default: Chinese first, English second, with short fields joined on one line and longer prose on a labelled line per language. `report.locale` selects `bilingual` (default), `en` or `zh`.

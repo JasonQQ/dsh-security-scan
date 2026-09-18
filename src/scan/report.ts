@@ -27,6 +27,7 @@
 import type { Capability, Finding, ScanResult, Severity } from '../types.js';
 import { type Locale, categoryName, severityName, t, zhFor } from '../i18n.js';
 import { SCAN_RULE_TEXT_ZH } from './rules.zh.js';
+import { renderTopRisk, renderTopRiskLine } from './risk.js';
 
 /** Cap on rows printed per capability kind and per finding. */
 export const REPORT_ROW_CAP = 12;
@@ -194,6 +195,11 @@ export function renderReport(result: ScanResult, locale: Locale = DEFAULT_LOCALE
   const installTime = result.installScripts.filter((script) => script.installTime);
   const publishTime = result.installScripts.filter((script) => !script.installTime);
 
+  const topRisk = renderTopRisk(result, locale);
+  if (topRisk !== undefined) {
+    lines.push(topRisk);
+  }
+
   lines.push(`## ${t(locale, 'Install-time scripts', '安装期脚本')}`);
   lines.push('');
   if (installTime.length === 0) {
@@ -312,6 +318,10 @@ export function renderSummary(result: ScanResult, locale: Locale = DEFAULT_LOCAL
     `${t(locale, 'digest', '摘要')} ${result.digest.slice(0, 16)}…`,
     t(locale, grade.en, grade.zh),
   ];
+  if (result.grade === 'D') {
+    const line = renderTopRiskLine(result, locale);
+    if (line !== undefined) lines.push(`  ${line}`);
+  }
   const worst = result.findings
     .filter((finding) => finding.severity === 'critical' || finding.severity === 'high')
     .slice(0, 5);
