@@ -108,6 +108,30 @@ anchor.
   the *shape* of what matched, capability values are redacted on extraction, and
   every summary and payload is passed through the redactor before sealing.
 
+## What the gate does not cover
+
+Stated here because it was learned the direct way, not reasoned about in advance.
+
+**Your own input is not audited.** The output audit runs on `tools/post-execute`,
+so it sees tool *results*. Text a person types into the conversation does not pass
+through it — a credential pasted into a chat is not redacted, not flagged, and is
+written to the session log under `~/.dsh/sessions/`. The gate protects what the
+model reads and what the model produces; it cannot protect what you hand over. If
+you need to give a secret to a process, put it in that process's environment or in
+the OS keychain, not in a message.
+
+**Authoring these rules fights the rules.** Verifying a guard rule means writing
+commands whose text contains the attack it detects, and the guard cannot tell a
+test fixture from the real thing. Four commands written while tuning the catalog
+were refused, three of them while verifying the fix for the previous refusal. The
+regression tests in `test/` therefore assemble their sensitive literals from
+pieces, and `guard.mode: monitor` is the supported way to work on the rules
+themselves.
+
+**A live guard and its own test suite cannot share one shell.** Same cause. In
+monitor mode the audit log still records every detection, which is what makes an
+end-to-end check possible there: run the command, then read what the guard thought.
+
 ## Limits
 
 These are stated plainly because a security tool that oversells itself is worse

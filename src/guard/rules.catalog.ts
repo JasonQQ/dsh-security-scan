@@ -750,6 +750,29 @@ function isAddressLiteral(host: string): boolean {
 }
 
 /** Human classification of a non-public address, used in rule details. */
+/**
+ * Addresses that are published in every manual and reveal nothing about a network.
+ *
+ * Loopback, the unspecified address and the cloud metadata endpoints are the same
+ * on every machine, so redacting them protects nothing while filling the report
+ * with noise — a tool result that reads a config file contains `127.0.0.1` and the
+ * reader needs to see it. The RFC5737 documentation ranges are likewise nobody's
+ * topology. What this rule is for is the address that is *only* true of your
+ * network.
+ *
+ * @param literal - the address as it appeared.
+ * @returns true when the address says nothing about this network.
+ */
+function isPublishedAddress(literal: string): boolean {
+  // `[::1]` arrives bracketed from a URL authority, so compare the bare form.
+  const bare = literal.replace(/^\[|\]$/g, '');
+  if (METADATA_HOSTS.includes(bare)) return true;
+  if (/^127\./.test(bare)) return true;
+  if (/^(?:192\.0\.2|198\.51\.100|203\.0\.113)\./.test(bare)) return true;
+  if (/^(?:0\.0\.0\.0|255\.255\.255\.255|::1?|)$/.test(bare)) return true;
+  return false;
+}
+
 function privateAddressClass(address: string): string {
   const bare = address.replace(/^\[|\]$/g, '');
   if (bare === '::1' || bare === '::') return 'IPv6 loopback';
@@ -2470,6 +2493,7 @@ export const OUTPUT_RULES: OutputRule[] = [
       let match: RegExpExecArray | null;
       while ((match = ipv4.exec(ctx.text)) !== null) {
         if (!isPrivateAddressLiteral(match[0])) continue;
+        if (isPublishedAddress(match[0])) continue;
         const metadata = METADATA_HOSTS.includes(match[0]);
         push({
           matched: match[0],
@@ -2483,6 +2507,7 @@ export const OUTPUT_RULES: OutputRule[] = [
       const ipv6 = globalRe(RE_OUTPUT_IPV6);
       while ((match = ipv6.exec(ctx.text)) !== null) {
         if (!isPrivateAddressLiteral(match[0])) continue;
+        if (isPublishedAddress(match[0])) continue;
         push({ matched: match[0], replacement: '«internal-ip»', label: 'internal-address' });
         if (hits.length >= 24) break;
       }
@@ -2491,6 +2516,14 @@ export const OUTPUT_RULES: OutputRule[] = [
       while ((match = hostRe.exec(ctx.text)) !== null) {
         const host = match[0];
         if (!isInternalHostname(host)) continue;
+        // A hostname ends at the match. Without this, a dotted identifier whose
+        // last label happens to be an internal suffix is treated as an address —
+        // `ssrf.internal-hostname` in a rule id is not a host, and redacting it
+        // silently mangles the identifiers a reader is trying to search for.
+        if (/[-\w.]/.test(ctx.text[match.index + host.length] ?? '')) continue;
+        // Nor does a hostname start after a path separator: `/etc/rc.local` and
+        // `scripts/deploy.local` are file names that end in an internal suffix.
+        if (ctx.text[match.index - 1] === '/') continue;
         const suffix = INTERNAL_HOST_SUFFIXES.find((candidate) => host.toLowerCase().endsWith(candidate));
         push({
           matched: host,
@@ -2626,7 +2659,11 @@ export const OUTPUT_RULES: OutputRule[] = [
         });
         if (hits.length >= 4) break;
       }
-      const envLine = /(?<![\w-])DSH_SECURITY_SCAN_KEY\s*[=:]\s*\S+/.exec(ctx.text);
+      // The value must be key material, not any non-space run: `resolveKey` only
+      // accepts 64 hex characters, and matching a bare `NAME=…` made this rule
+      // fire on its own replacement placeholder — the string `NAME=«redacted»`
+      // appears in this very file.
+      const envLine = /(?<![\w-])DSH_SECURITY_SCAN_KEY\s*[=:]\s*[0-9a-fA-F]{64}(?![\w-])/.exec(ctx.text);
       if (envLine !== null) {
         hits.push({ matched: envLine[0], replacement: 'DSH_SECURITY_SCAN_KEY=«redacted:audit-key»', label: 'audit-key' });
       }

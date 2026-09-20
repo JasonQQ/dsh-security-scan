@@ -149,7 +149,7 @@ Reports default to **bilingual** — Chinese and English together, Chinese first
 
 Two things stay English on purpose: the **JSON report and the audit log**, whose field names are the log's vocabulary and would stop being greppable if they followed a config value; and the **tool descriptions and system-prompt section**, which are instructions to a model in a harness whose own prompts are English.
 
-Rule text is translated per rule id. A rule that has not been translated yet renders in English rather than being omitted, and the coverage is reported by `/security status` — so a gap is visible rather than silently degrading half a report.
+All **158 rules** carry Chinese text, translated per rule id in `rules.zh.ts` for each catalog. A rule added later that has no translation renders in English rather than being omitted, and the coverage is reported by `/security status` — so a gap appears as a number rather than as half a report that quietly dropped a language.
 
 **Start in `monitor` mode.** It records every decision without refusing anything, so you can read `/security status` and see which rules your own workflow trips before any call is blocked. A guard that blocks on its first day gets turned off on its first day.
 

@@ -48,6 +48,16 @@ on npm and unlisted in the marketplace at the time of the rename.
 - The JSON report and the audit log stay English regardless — their field names are the log's vocabulary — as do the tool descriptions and the system-prompt section, which are instructions to a model.
 - Rule text is translated per rule id in `rules.zh.ts` for each catalog. An untranslated rule falls back to English rather than being omitted, and `/security status` reports the coverage so a gap is visible.
 
+**Translations and output-audit calibration**
+
+- All 158 rules now carry Chinese `title` / `detail` / `remediation`, keyed by rule id in `rules.zh.ts` for each catalog. Technical tokens — commands, paths, addresses, environment variable names, API names — are deliberately left untranslated so a reader can copy them into a shell.
+- The output audit was recalibrated against the shapes that made it fire on the plugin's own source, three of them at `block` severity, which withheld whole tool results:
+  - A private key now requires a real body. A lazy `[\s\S]*?` bridged two *documentation* mentions of the PEM header into one "key", and the OpenSSH pattern's trailing `|$` matched a bare mention to the end of the text. A key body is lines of 64 base64 characters; requiring one run of 64 is what separates the description from the thing.
+  - Loopback, the unspecified address, the published metadata endpoints and the RFC5737 documentation ranges are no longer redacted. They are identical on every machine, so redacting them protects nothing — the input side already owns "something is talking to the metadata service".
+  - A hostname must end where the match ends and must not sit in path position. `ssrf.internal-hostname` was having its middle redacted (a rule id mangled into `«internal-host»-hostname`), and `/etc/rc.local` was read as a host.
+  - The audit-key rule no longer matches its own replacement placeholder: the value must be 64 hex characters, which is what `resolveKey` accepts anyway.
+- Residual, documented rather than patched: reading the plugin's own pattern tables still looks like leaking topology, because the tables contain the hostnames and suffixes the rule hunts. That is the signature-table property, and self-exempting it would be the hole.
+
 **Surface**
 
 - 4 tools: `security_scan_audit`, `security_scan_status`, `security_scan_log`, `security_scan_verify`.

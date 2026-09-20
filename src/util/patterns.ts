@@ -38,14 +38,22 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   {
     id: 'secret.private-key',
     label: 'private key block',
-    re: /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g,
+    // A real PEM body is lines of 64 base64 characters. Requiring one unbroken
+    // run of at least 64 from the base64 alphabet is what separates key material
+    // from a document that merely *names* the header: a security plugin's own rule
+    // text names it, and a lazy `[\s\S]*?` bridged two such mentions into one
+    // "key" that then withheld whole tool results.
+    re: /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]{0,120}?[A-Za-z0-9+/]{64,}[\s\S]{0,20000}?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g,
     replacement: '-----BEGIN PRIVATE KEY-----«redacted»-----END PRIVATE KEY-----',
     severity: 'critical',
   },
   {
     id: 'secret.ssh-private-key',
     label: 'OpenSSH private key',
-    re: /-----BEGIN OPENSSH PRIVATE KEY-----[\s\S]*?(?:-----END OPENSSH PRIVATE KEY-----|$)/g,
+    // Same body requirement, and note the trailing `|$`: without a base64 run in
+    // front of it, that alternative matched a bare mention of the header all the
+    // way to the end of the text, reporting documentation as a private key.
+    re: /-----BEGIN OPENSSH PRIVATE KEY-----[\s\S]{0,120}?[A-Za-z0-9+/]{64,}[\s\S]{0,20000}?(?:-----END OPENSSH PRIVATE KEY-----|$)/g,
     replacement: '-----BEGIN OPENSSH PRIVATE KEY-----«redacted»',
     severity: 'critical',
   },
