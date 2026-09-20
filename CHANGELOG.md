@@ -58,6 +58,11 @@ on npm and unlisted in the marketplace at the time of the rename.
   - The audit-key rule no longer matches its own replacement placeholder: the value must be 64 hex characters, which is what `resolveKey` accepts anyway.
 - Residual, documented rather than patched: reading the plugin's own pattern tables still looks like leaking topology, because the tables contain the hostnames and suffixes the rule hunts. That is the signature-table property, and self-exempting it would be the hole.
 
+**Guard corrections**
+
+- `priv.remote-pipe-to-shell` no longer reads a pipe as execution when the interpreter takes its program inline. `curl … | python3 -c '…'` feeds the response to a program that came from the command line — which is how anyone reads a JSON API from a shell — and it was refused at `block` severity for it. An eval flag (`-c`, `-e`, `-r`, `--eval`) is now the difference between running what the server returns and parsing it.
+- A host allowlist no longer silences rules whose signal is not the host. Suppressing by category meant that listing `localhost` also stopped `ssrf.loopback-service-port` from firing, so `http://127.0.0.1:2375/containers/json` — the unauthenticated Docker daemon — became allowed. `ssrf.loopback-service-port`, `ssrf.dangerous-scheme`, `ssrf.cloud-metadata` and `ssrf.known-drop-host` are now exempt from the exemption.
+
 **Surface**
 
 - 4 tools: `security_scan_audit`, `security_scan_status`, `security_scan_log`, `security_scan_verify`.

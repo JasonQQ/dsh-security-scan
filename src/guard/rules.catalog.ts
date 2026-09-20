@@ -1630,8 +1630,24 @@ export const GUARD_RULES: GuardRule[] = [
       'Download to a file first, read it, and then run it — or install the tool from the package registry, where the artifact digest is pinned.',
     tools: ['bash', 'run_code'],
     test: (ctx) => {
-      const matched = viewMatch(ctx.views, RE_PIPE_TO_SHELL);
-      return matched === undefined ? undefined : { matched };
+      for (const view of ctx.views) {
+        const re = globalRe(RE_PIPE_TO_SHELL);
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(view)) !== null) {
+          // An eval flag means the interpreter's *program* came from the command
+          // line, so the piped text is its input rather than its code. That is
+          // the difference between `curl … | sh` — which runs whatever the server
+          // returns — and `curl … | python3 -c 'import json,sys; json.load(sys.stdin)'`
+          // or `curl … | jq .`, which is how anyone reads a JSON API from a shell.
+          // Without this the rule refused a read-only API query, at `block`
+          // severity, for the crime of parsing its response.
+          const rest = (view.slice(match.index + match[0].length).split(/[;|&\n]/, 1)[0] ?? '').replace(/^\s*/, '');
+          const flags = rest.match(/^(?:-\S+\s+)*/)?.[0] ?? '';
+          if (/(?:^|\s)-(?:c|e|E|r|p)\b/.test(flags) || /--(?:eval|print|command)\b/.test(flags)) continue;
+          return { matched: safeClip(match[0], MATCH_LIMIT) };
+        }
+      }
+      return undefined;
     },
   },
   {

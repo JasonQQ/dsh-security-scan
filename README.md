@@ -115,7 +115,7 @@ Every key is optional; the defaults are the enforcing ones. Unknown keys are **r
           rules:                   # per-rule overrides; '*'-suffixed keys match by prefix
             net.excessive-distinct-hosts: warn
             'persist.*': off
-          allowedHosts: []         # exempt destinations, e.g. ['internal.example.com']
+          allowedHosts: []         # destinations that are not news to you, e.g. ['localhost']
           allowedPaths: []         # exempt path prefixes
           requireAuditForInstall: false
         output:
@@ -152,6 +152,12 @@ Two things stay English on purpose: the **JSON report and the audit log**, whose
 All **158 rules** carry Chinese text, translated per rule id in `rules.zh.ts` for each catalog. A rule added later that has no translation renders in English rather than being omitted, and the coverage is reported by `/security status` — so a gap appears as a number rather than as half a report that quietly dropped a language.
 
 **Start in `monitor` mode.** It records every decision without refusing anything, so you can read `/security status` and see which rules your own workflow trips before any call is blocked. A guard that blocks on its first day gets turned off on its first day.
+
+### The allowlist answers one question
+
+`guard.allowedHosts` exempts destinations from the SSRF and credential-access families — it is the answer to "this host is not news to me", which is what stops a dev server on `localhost` from asking for approval on every call.
+
+It deliberately does **not** silence rules whose signal is something other than the host. `ssrf.loopback-service-port` still fires, because allowing `localhost` means your dev server, not the services that share the address: port 2375 is the unauthenticated Docker daemon, which is root-equivalent on that machine, and 6379 is Redis. `ssrf.dangerous-scheme`, `ssrf.cloud-metadata` and `ssrf.known-drop-host` are likewise never exempted, and `harness.*` and `destructive.*` are untouched by the key entirely.
 
 ### Overriding a refusal
 

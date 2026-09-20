@@ -36,6 +36,32 @@ export interface GuardPolicy {
   allowedPaths: string[];
 }
 
+/**
+ * SSRF rules that a host allowlist must never silence.
+ *
+ * `guard.allowedHosts` answers "which destinations are not news to me", and an
+ * operator who lists `localhost` means their dev server — not the services that
+ * happen to share the address. Suppressing by category alone therefore allowed
+ * something nobody asked for: `http://127.0.0.1:2375/containers/json` is the
+ * unauthenticated Docker daemon, which is root-equivalent on that machine, and
+ * `localhost:6379` is Redis. Each rule below keys on something other than the
+ * host, so the allowlist is not an answer to it:
+ *
+ * - `ssrf.loopback-service-port` — the signal is the *service behind the port*.
+ * - `ssrf.dangerous-scheme` — the signal is the scheme (`file:`, `gopher:`).
+ * - `ssrf.cloud-metadata` — an instance-metadata endpoint is never yours.
+ * - `ssrf.known-drop-host` — nor is a public data-drop service.
+ *
+ * The last two cannot match an allowlisted host in practice; they are listed so
+ * the intent is explicit rather than inferred from host names.
+ */
+const ALLOWLIST_PROOF_RULES: ReadonlySet<string> = new Set([
+  'ssrf.loopback-service-port',
+  'ssrf.dangerous-scheme',
+  'ssrf.cloud-metadata',
+  'ssrf.known-drop-host',
+]);
+
 /** Action ranking, strongest last. */
 const ACTION_RANK: Readonly<Record<GuardAction, number>> = { warn: 0, ask: 1, block: 2 };
 
@@ -123,7 +149,8 @@ export function inspectToolCall(
     if (action === 'off') continue;
     // An allowlisted destination is the operator's explicit decision; suppressing
     // the whole rule (rather than blanking the message) keeps the log honest.
-    if (rule.category === 'ssrf' && hostExempt) continue;
+    // Rules whose signal is not the *host* are never suppressed this way.
+    if (rule.category === 'ssrf' && hostExempt && !ALLOWLIST_PROOF_RULES.has(rule.id)) continue;
     if (rule.category === 'credential-access' && pathExempt) continue;
 
     let hits: ReturnType<typeof rule.test>;

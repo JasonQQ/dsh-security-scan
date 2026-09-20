@@ -116,7 +116,7 @@ dsh plugin add https://github.com/JasonQQ/dsh-security-scan
           rules:                   # 按规则覆盖；以 '*' 结尾的键按前缀匹配
             net.excessive-distinct-hosts: warn
             'persist.*': off
-          allowedHosts: []         # 豁免目标，例如 ['internal.example.com']
+          allowedHosts: []         # 「不是新闻」的目标，例如 ['localhost']
           allowedPaths: []         # 豁免路径前缀
           requireAuditForInstall: false
         output:
@@ -153,6 +153,12 @@ C 级刻意不给这一节：C 的意思是「你来复核一下」，D 的意�
 **158 条规则**全部带中文文案，按 rule id 分别放在两份 `rules.zh.ts` 里。之后新增而尚未翻译的规则会回退成英文而不是被省略，覆盖率由 `/security status` 报出——缺口表现为一个数字，而不是半份悄悄少了一种语言的报告。
 
 **请从 `monitor` 模式开始。** 它记录每一条决策但不拒绝任何调用，你可以先读 `/security status`，看清自己的日常工作流会撞上哪些规则，再开始拦。第一天就拦人的护栏，第一天就会被关掉。
+
+### allowlist 只回答一个问题
+
+`guard.allowedHosts` 豁免 SSRF 与凭据读取两类的目标——它回答的是「这个主机对我来说不是新闻」，这也是让 `localhost` 上的开发服务器不再每次都弹审批的原因。
+
+但它**刻意不**压制「信号不在主机上」的那些规则。`ssrf.loopback-service-port` 仍然会命中：把 `localhost` 加进白名单的意思是「我的开发服务器」，而不是「共用这个地址的那些服务」——2375 是未鉴权的 Docker daemon（在那台机器上等价于 root），6379 是 Redis。`ssrf.dangerous-scheme`、`ssrf.cloud-metadata`、`ssrf.known-drop-host` 同样永不被豁免，而 `harness.*` 与 `destructive.*` 完全不受这个键影响。
 
 ### 如何推翻一次拒绝
 
