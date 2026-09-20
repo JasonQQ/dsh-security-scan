@@ -24,7 +24,7 @@ import { commentMask } from './comments.js';
 import { DEFAULT_LIMITS, type LoadLimits, type StagedSource, loadDirectory, loadTarball } from './load.js';
 import { type InstalledResolution, dshHome, resolveInstalledPackage } from './installed.js';
 import { LINE_RULES, PACKAGE_RULES } from './rules.catalog.js';
-import { type PackageHit, type RuleInput, DEFAULT_PER_FILE_CAP, isLineRule } from './rule-types.js';
+import { type FileInfo, type LineRule, type PackageHit, type RuleInput, DEFAULT_PER_FILE_CAP, isLineRule } from './rule-types.js';
 import { atOrBelow, scoreFindings } from './score.js';
 
 /** Options for one audit. */
@@ -50,6 +50,15 @@ export interface AuditOptions {
    * comes back with `blocked: true`. Defaults to `D`, i.e. only D is refused.
    */
   blockAtOrBelow?: Grade;
+  /**
+   * Restrict the audit to one subdirectory, stripped of its prefix.
+   *
+   * Marketplace entries for monorepos name the plugin as `<repo>#<subdir>`, and
+   * the archive is the whole repository — so without this the audit covers a
+   * large unrelated project and reports its findings against the plugin. Scoping
+   * makes the grade mean what the reader thinks it means.
+   */
+  subpath?: string;
   /** Environment to resolve `DSH_HOME` from when looking up an installed name. */
   env?: NodeJS.ProcessEnv;
   /** Working directory used as a final `node_modules` search root. */
@@ -86,6 +95,49 @@ function worstOf(left: Severity, right: Severity): Severity {
   return SEVERITY_ORDER.indexOf(left) >= SEVERITY_ORDER.indexOf(right) ? left : right;
 }
 
+/** Severity ceiling for findings in a file whose role is not shipped behavior. */
+const ROLE_SEVERITY_CAP: Severity = 'low';
+
+/**
+ * Categories whose findings in a document are the point rather than an artifact.
+ *
+ * Prompt-injection rules exist to read instructions aimed at a model, and a
+ * `SKILL.md` is the canonical place those live — so capping them because the file
+ * is a document would disable the detection entirely. Every other category is
+ * making a claim about what the package does when it runs, which a document does
+ * not do.
+ */
+const ROLE_CAP_EXEMPT_PREFIXES: readonly string[] = ['prompt.'];
+
+/**
+ * The severity a finding carries once its file is taken into account.
+ *
+ * Two independent ceilings apply. A rule may cap itself inside generated output
+ * (`generatedFileSeverity`), because a minifier inlines string literals from
+ * every dependency and mangles the structure a reviewer would use to judge
+ * intent. Separately, a finding in test material or prose is reported but capped:
+ * it describes something other than the code that installs and runs, so it is
+ * evidence to read rather than a reason to refuse the package.
+ *
+ * The caps do not hide anything. The finding is still listed, with its file and
+ * line, and the score still moves — the ceiling only stops such a finding from
+ * pinning a grade at `D` on its own.
+ *
+ * @param rule - the rule that produced the finding.
+ * @param file - the file the evidence was found in.
+ * @returns the severity to record.
+ */
+function severityFor(rule: LineRule, file: FileInfo): Severity {
+  let severity = rule.severity;
+  if (file.generated === true && rule.generatedFileSeverity !== undefined) {
+    severity = worstOf(severity, rule.generatedFileSeverity);
+  }
+  const role = file.role ?? 'source';
+  if (role !== 'test' && role !== 'doc') return severity;
+  if (ROLE_CAP_EXEMPT_PREFIXES.some((prefix) => rule.id.startsWith(prefix))) return severity;
+  return worstOf(severity, ROLE_SEVERITY_CAP);
+}
+
 /** Resolve a source string into staged bytes. */
 async function resolveSource(source: string, options: AuditOptions): Promise<ResolvedSource> {
   const limits = options.limits ?? DEFAULT_LIMITS;
@@ -104,12 +156,20 @@ async function resolveSource(source: string, options: AuditOptions): Promise<Res
     if (!response.ok) {
       throw new Error(`could not download ${source}: HTTP ${response.status}`);
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
     const cap = options.maxFetchBytes ?? DEFAULT_LIMITS.maxTotalBytes;
+    // Reject on the declared length before pulling the body. Checking after means
+    // a 553 MB repository is fully downloaded and then discarded — and in practice
+    // it timed out first, so the entry was reported as a network failure rather
+    // than as too large, which is a different and much less useful fact.
+    const declared = Number(response.headers.get('content-length') ?? '');
+    if (Number.isFinite(declared) && declared > cap) {
+      throw new Error(`artifact is ${declared} bytes, above the ${cap}-byte cap (rejected from its content-length, without downloading it)`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.length > cap) {
       throw new Error(`downloaded artifact is ${buffer.length} bytes, above the ${cap}-byte cap`);
     }
-    const staged = loadTarball(buffer, limits);
+    const staged = loadTarball(buffer, limits, options.subpath);
     return { source: { kind: 'url', value: source }, staged };
   }
 
@@ -139,12 +199,12 @@ async function resolveSource(source: string, options: AuditOptions): Promise<Res
         ...(installed.profile !== undefined ? { profile: installed.profile } : {}),
         linked: installed.linked,
       },
-      staged: loadDirectory(installed.path, limits),
+      staged: loadDirectory(installed.path, limits, options.subpath),
       resolution: installed,
     };
   }
   if (stats.isDirectory()) {
-    return { source: { kind: 'directory', value: source, stagedPath: absolute }, staged: loadDirectory(absolute, limits) };
+    return { source: { kind: 'directory', value: source, stagedPath: absolute }, staged: loadDirectory(absolute, limits, options.subpath) };
   }
   if (!stats.isFile()) {
     throw new Error(`${absolute} is neither a directory nor a regular file`);
@@ -152,7 +212,7 @@ async function resolveSource(source: string, options: AuditOptions): Promise<Res
   if (!isArchivePath(absolute)) {
     throw new Error(`${absolute} is not a directory or a .tgz/.tar.gz/.tar archive`);
   }
-  const staged = loadTarball(readFileSync(absolute), limits);
+  const staged = loadTarball(readFileSync(absolute), limits, options.subpath);
   return { source: { kind: 'tarball', value: source, stagedPath: absolute }, staged };
 }
 
@@ -200,12 +260,7 @@ function runLineRules(extraction: Extraction): Finding[] {
         findings.push({
           id: rule.id,
           category: rule.category,
-          // A rule whose evidence is a literal caps itself inside generated
-          // output, where a minifier has inlined literals from every dependency.
-          severity:
-            file.generated === true && rule.generatedFileSeverity !== undefined
-              ? worstOf(rule.severity, rule.generatedFileSeverity)
-              : rule.severity,
+            severity: severityFor(rule, file),
           title: rule.title,
           detail: rule.detail,
           remediation: rule.remediation,
@@ -282,6 +337,9 @@ function buildRuleInput(extraction: Extraction, lineFindings: Finding[]): RuleIn
 /** Run package rules. */
 function runPackageRules(input: RuleInput): Finding[] {
   const findings: Finding[] = [];
+  const roleByPath = new Map<string, FileInfo['role']>(
+    input.files.map((file) => [file.path, file.role ?? 'source']),
+  );
   for (const rule of PACKAGE_RULES) {
     if (isLineRule(rule)) continue;
     let hits: PackageHit[] | undefined;
@@ -297,7 +355,7 @@ function runPackageRules(input: RuleInput): Finding[] {
       findings.push({
         id: rule.id,
         category: rule.category,
-        severity: hit.severity ?? rule.severity,
+        severity: packageSeverity(hit.severity ?? rule.severity, hit.evidence, roleByPath),
         title: rule.title,
         detail: hit.detail ?? rule.detail,
         remediation: rule.remediation,
@@ -306,6 +364,38 @@ function runPackageRules(input: RuleInput): Finding[] {
     }
   }
   return findings;
+}
+
+/**
+ * The severity a package-level finding carries once its evidence is considered.
+ *
+ * A package rule combines anchors from across the tree, and its severity is a
+ * claim about the package as a whole. When every anchor it found sits in test
+ * material or prose, that claim is really about those files: `rm -rf /` inside
+ * `packages/fatal-guard/tests/sanitize-command.test.js` is the input a test feeds
+ * a sanitizer to prove the sanitizer rejects it. The line-rule ceiling in
+ * {@link severityFor} does not reach here, because a package rule produces one
+ * finding with evidence from many files, so the same ceiling is applied to the
+ * *set* of anchors.
+ *
+ * One anchor in real source is enough to keep the original severity: that is the
+ * case the rule exists for.
+ *
+ * @param severity - the severity the rule asked for.
+ * @param evidence - the anchors it produced.
+ * @param roleByPath - resolved file roles.
+ * @returns the severity to record.
+ */
+function packageSeverity(
+  severity: Severity,
+  evidence: readonly Evidence[],
+  roleByPath: ReadonlyMap<string, FileInfo['role']>,
+): Severity {
+  const allDevelopment = evidence.every((item) => {
+    const role = roleByPath.get(item.file) ?? 'source';
+    return role === 'test' || role === 'doc';
+  });
+  return allDevelopment ? worstOf(severity, ROLE_SEVERITY_CAP) : severity;
 }
 
 /** Sort findings worst-first, then by id for stability. */
@@ -363,12 +453,15 @@ export interface InstallPolicy {
  */
 export async function auditSource(source: string, options: AuditOptions = {}): Promise<ScanResult> {
   const { source: descriptor, staged, resolution } = await resolveSource(source, options);
+  const scopeNote = options.subpath === undefined || options.subpath.trim().length === 0
+    ? []
+    : [`scoped to the subdirectory \`${options.subpath.replace(/^\/+|\/+$/g, '')}/\``];
   const extraction = extract(staged);
   const lineFindings = runLineRules(extraction);
   const packageFindings = runPackageRules(buildRuleInput(extraction, lineFindings));
   const findings = orderFindings(collapseDuplicates([...lineFindings, ...packageFindings]));
   const scored = scoreFindings(findings);
-  const notes = [...extraction.notes];
+  const notes = [...scopeNote, ...extraction.notes];
   if (options.allowFetch === true) notes.push('outbound fetching was permitted for this audit');
   if (scored.forcedBy !== undefined) notes.push(`grade forced to D by a critical finding: ${scored.forcedBy}`);
   // Say plainly which copy was audited. An installed plugin can be a symlink to a

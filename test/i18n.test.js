@@ -152,9 +152,9 @@ test('coverage is reported rather than hidden', () => {
   // Every rule id in both catalogs, so the counts the status tool prints are real.
   const scanIds = [...LINE_RULES, ...PACKAGE_RULES].map((rule) => rule.id);
   const guardIds = [...GUARD_RULES, ...OUTPUT_RULES].map((rule) => rule.id);
-  assert.equal(scanIds.length, 77);
+  assert.equal(scanIds.length, 79);
   assert.equal(guardIds.length, 81);
-  assert.equal(new Set(scanIds).size, 77);
+  assert.equal(new Set(scanIds).size, 79);
   assert.equal(new Set(guardIds).size, 81);
 });
 

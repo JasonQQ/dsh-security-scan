@@ -13,7 +13,7 @@ on npm and unlisted in the marketplace at the time of the rename.
 - `security_scan_audit` statically analyses a plugin source (local directory, local `.tgz`/`.tar.gz`, or an `https:` tarball when `install.fetch` is enabled) and grades it A–D.
 - Sources are staged **in memory**; nothing is unpacked to disk. The bounded ustar reader drops archive entries that escape the root rather than normalizing them, and directory staging does not follow symlinks.
 - Capability inventory: file paths read and written, commands spawned, domains contacted, environment variables read, declared lifecycle hooks. `path.join(os.homedir(), '.ssh', 'id_rsa')` is reported as `~/.ssh/id_rsa`, not as its fragments.
-- 60 line rules and 17 correlation rules across 11 categories. The correlation rules are the point: "reads a credential **and** opens an outbound connection" is a package-level fact no single line contains.
+- 61 line rules and 18 correlation rules across 11 categories. The correlation rules are the point: "reads a credential **and** opens an outbound connection" is a package-level fact no single line contains.
 - Line rules are tested against several spellings of each line, including concatenation-joined, so a rule written against `~/.ssh/id_rsa` matches code that builds it from three literals.
 - Scoring: per-severity weights with diminishing returns for repetition, an escalation for findings spread across independent categories, and any `critical` finding pins the grade to `D` regardless of the arithmetic.
 - A local source named by an install command is audited inline by the install check, so the refusal is about the bytes that exist rather than a name.
@@ -76,7 +76,40 @@ on npm and unlisted in the marketplace at the time of the rename.
 
 **Testing**
 
-- 164 unit and integration tests. Guard and scanner behavior is asserted by decision rather than by rule id, so a rule rename does not break the suite and a new rule covering an existing case still has to keep the decision.
+- 241 unit and integration tests. Guard and scanner behavior is asserted by decision rather than by rule id, so a rule rename does not break the suite and a new rule covering an existing case still has to keep the decision.
 - Every tampering shape the log claims to detect is tested by editing the file the way an attacker would.
 - `npm run smoke` runs the whole runtime catalog over 23 benign calls (which must stay clean) and 42 dangerous calls (which must be caught at or above the expected level), failing on any false positive.
 - Malicious fixtures are generated at run time rather than committed.
+- `docs/stress/` holds a batch run over the marketplace's **top 100 plugins by stars** (`scripts/stress-top-plugins.mjs`), and `docs/stress/CALIBRATION.md` records what it found. The run is the reason most of the calibration entries below exist: nine rules were judged against a hundred unrelated real repositories instead of against fixtures, and every defect listed was found by reading a report rather than by reasoning about a pattern.
+- `scripts/stress-analyze.mjs` aggregates a stress run by rule and prints the evidence lines behind each hit, which is how a false positive is told apart from a real one.
+- `scripts/calibration-check.mjs` reduces each defect to the smallest reproducing package and additionally asserts the shapes that **must still fire** (a real encoded exfiltration, real obfuscation, secret enumeration, a destructive command in shipped source), so tightening a rule cannot be mistaken for fixing it.
+
+**Calibration from the batch run**
+
+Measured over the same 91 packages, same list, before and after: **D 80 → 67**, mean score 10 → 26, findings 1,384 → 1,019. The four correlations that carried most of the refusals:
+
+- Correlations no longer accept a *mention* as a credential read. `exfil.credential-read-then-callback` fired on 70 of 90 packages because `cred.credential-path-mention` — which fires on any line naming a secret path, including a UI label like `密钥读取优先级：.credentials.yaml` — satisfied the credential half. It now requires one of the six secret-store read rules at `high` or above; reading a `.env` file is excluded, since loading one's own configuration is what ordinary plugins do.
+- Correlations no longer cite evidence that does not support them. The credential anchors were collected with the `cred.` prefix, so the mention line was printed as the read that justified the finding; the anchors now come from the read rules themselves.
+- Obfuscation correlations require actual concealment (`OBFUSCATION_PROOF_RULES`: hex-mangled identifiers, a base64 payload reaching an evaluator, strings reassembled from fragments) rather than dynamism. A computed `require(id)` is how a plugin host loads modules and `new Function(source)` is how a bundler evaluates a build, so `obf.obfuscation-with-network-callback` fell from 52 packages to 2.
+- The obfuscation "payload" was usually the bundler's own loader. Generated-output detection now recognises bundler runtime signatures (`__toESM`, `__webpack_require__`, `System.register(`, `__modules[`) and scans the **whole file**: the bundle in question defined its module table on line 2138, past the 400-line window the check had used.
+
+**File roles: what a finding is evidence *of***
+
+- Files are classified as `source`, `generated`, `test`, `doc` or `config`, and a finding in test material or prose is reported but capped at `low`, so it cannot pin a grade at `D`. `rm -rf /` inside `packages/fatal-guard/tests/sanitize-command.test.js` is the input a test feeds a sanitizer to prove the sanitizer rejects it, and read as shipped behavior it refused 11 packages. The cap applies to package-level findings too, when every anchor they cite is development-only.
+- `prompt-injection` rules are exempt: a `SKILL.md` is a document, and an instruction aimed at a model is exactly what those rules exist to find.
+- The capability inventory — file paths, commands, domains — is built from code only. Documentation described a plugin's README link list as the domains it contacts, which put `keepachangelog.com` in a "domains contacted" list and made `net.excessive-distinct-hosts` fire on 47 of 91 packages.
+- The two new rules are `cred.many-secret-env-vars` and `cred.environment-secret-enumeration`, which together replace an over-broad line regex: `...process.env` (forwarding the environment to a child process) and `process.env.EXAMPLE_API_KEY` (a plugin reading its own key) are no longer "credential harvest", while enumerating five or more differently-named secrets still is.
+
+**Other false positives from the same run**
+
+- A request to loopback cannot be evidence that a secret left the machine, so correlation anchors skip the destinations that cannot route off it (`127.0.0.0/8`, `::1`, `0.0.0.0`) while keeping private ranges, which really do reach another host.
+- `Buffer.from(x)` without an encoding argument is a byte conversion, not a decode step. Counting it made every package that signs or serializes a payload look like an encoded exfiltration; `Buffer.from(x, 'base64')` still counts.
+- `net.plaintext-http` no longer reports namespaces and reference links. `xmlns="http://www.w3.org/2000/svg"` and a license header's `http://opensource.org/licenses/MIT` are names written as URLs; nothing is requested from them and no `https` version would be an improvement. They were 73 hits across 90 packages.
+- `net.metadata-endpoint` requires a request context instead of matching the address anywhere. Code that *blocks* `169.254.169.254`, and a semgrep rule whose `pattern-not-inside` excludes it, were both reported at `critical` for reaching it.
+- `install.hook-with-network-callback` requires the hook's own command — or a local script it invokes — to reach the network. Accepting an anchor from anywhere in the package made it fire on every plugin whose `prepare` script runs the compiler and whose repository mentions an `http://` URL in a log message.
+- `obf.dynamic-require` caps itself to `low` in generated output, where a computed require is the loader's mechanism rather than a concealed import.
+
+**Archive staging**
+
+- A subpath is now matched against the tree *after* its single wrapping directory is removed. GitHub and npm both wrap everything (`<repo>-HEAD/`, `package/`), and the wrapper was being stripped after staging while the subpath was checked during it — so a scoped audit of a monorepo staged **zero files** and reported `no files under "…"` for a directory that existed. The wrapper is now decided from the tar headers in a header-only pre-pass, before any decision depends on it, and archive entries that escape the root no longer get a vote in that decision.
+- An archive larger than the fetch cap is rejected from its `content-length` before the body is pulled, so a 553 MB repository costs one request instead of a full download that then fails the cap.

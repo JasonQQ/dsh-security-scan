@@ -1,0 +1,284 @@
+> 批量压测 / Batch stress test · ★ 742 · `LiPu-jpg/Openwrite`
+> https://github.com/LiPu-jpg/Openwrite · audited in 4.2s
+# 安装前体检 / Pre-install audit: dsh-openwrite@0.2.10
+
+**信任评级 / Trust grade: D** (评分 / score 0/100 — 拒绝：存在严重风险信号 / refused: critical risk signals)
+
+> **拒绝安装。** 该来源达到了配置的拒绝阈值。请先修复严重问题；若你已读过报告并接受风险，可把该包加入 `install.allow`。 / **Install refused.** This source met the configured refusal floor. Fix the critical findings, or add the package to `install.allow` if you have read them and accept the risk.
+
+> **部分扫描。** 大小或文件数上限使分析提前结束，因此该评级只覆盖已读取的部分。 / **Partial scan.** A size or file-count cap stopped the analysis early, so this grade covers only the part that was read.
+
+- 来源 / Source: `https://codeload.github.com/LiPu-jpg/Openwrite/tar.gz/HEAD` (URL / url)
+- 已分析文件：404 个（4.7 MiB） / Files analysed: 404 (4.7 MiB)
+- 内容摘要 / Content digest: `df920f3165c7e024f31ea55eefb6b65b…`
+- 体检时间 / Audited at: 2026-09-20T09:52:37.007Z
+
+## 最严重的风险 / Most severe risk
+
+**同一个包内既有环境变量收集又有对外请求 / Environment harvest and an outbound request in the same package** `exfil.environment-harvest-then-callback`
+
+中 数据会离开这台机器。该包中有代码把本机上的内容发往外部地址。
+EN Data leaves this machine. Something in this package takes content that lives here and sends it to a destination outside it.
+
+该包会访问的目标：`registry.npmjs.org`、`www.w3.org`、`127.0.0.1`、`www.apache.org`、`registry.npmmirror.com`、`github.com`、`paulmillr.com`、`opencollective.com` / Destinations this package reaches: `registry.npmjs.org`, `www.w3.org`, `127.0.0.1`, `www.apache.org`, `registry.npmmirror.com`, `github.com`, `paulmillr.com`, `opencollective.com`
+
+- 中 它发生在安装时：`prepare` 脚本会执行它，你不需要自己运行任何东西。
+  EN It happens at install time: the `prepare` script runs it, so you do not have to run anything yourself.
+- 中 其中一部分经过混淆，源码看不出真正执行的是什么。
+  EN Part of it is obfuscated, so the source does not show what actually executes.
+- 中 它还安排了之后继续运行，所以仅仅卸载这个包并不够。
+  EN It also arranges to run again later, so removing the package is not enough on its own.
+- 中 本次扫描不完整，因此可能还有内容根本没被读到。
+  EN The scan was partial, so there may be more that was never read.
+
+决定该评级的规则命中于 `scripts/profile-smoke.mjs:18`；完整列表见下方「发现」。 / The rule that decided the grade fired at `scripts/profile-smoke.mjs:18`; the full list is under Findings below.
+
+## 安装期脚本 / Install-time scripts
+
+- `prepare` (`package.json`): `node scripts/prepare.mjs`
+
+## 该插件能触及什么 / What this plugin can reach
+
+- **读取的文件路径 / File paths read:** `node:fs/promises`, `node_modules/@deepseek-ai/dsh-skill-filesystem/node_modules/readdirp`, `node_modules/readdirp`, `contracts/${name}.schema.json`, `delivery.json`, `active.json`, `runtime-manifest.json`, `\n`, `data/novels/smoke-book/data/dog/reviews/ch_009/dim_01.json`, `data/novels/smoke-book/data/dog/reviews/ch_009/dim_03.json`, `data/novels/smoke-book/data/dog/reviews/ch_009/review.json`, `.complete` （另有 52 项） / (+52 more)
+- **写入的文件路径 / File paths written:** `node:fs/promises`, `data/reviews`, `data/manuscript/arc_001`, `ch_100.md`, `data/manuscript/arc_001/ch_100.md`, `delivery.json`, `active.json`, `core.whl`, `runtime-manifest.json`, `requirements.lock`, `\\n`, `win32/Scripts/bin` （另有 46 项） / (+46 more)
+- **派生的命令 / Commands spawned:** `node:child_process`, `cross-spawn`, `^7.0.5`, `node_modules/cross-spawn`, `resolved`, `https://registry.npmmirror.com/cross-spawn/-/cross-spawn-7.0.6.tgz`, `-e`, `setInterval(()=>{},1000)`, `win32`, `ignore`, `taskkill`, `/pid` （另有 34 项） / (+34 more)
+- **连接的域名 / Domains contacted:** `registry.npmjs.org`, `www.w3.org`, `127.0.0.1`, `www.apache.org`, `registry.npmmirror.com`, `github.com`, `paulmillr.com`, `opencollective.com`, `liberapay.com`, `www.patreon.com`, `feross.org`, `paypal.me` （另有 28 项） / (+28 more)
+- **读取的环境变量 / Environment variables read:** `DSH_SESSION_ROOT`, `OPENWRITE_ROOT`, `OPENWRITE_CRASH`, `OPENWRITE_EXIT_CODE`, `OPENWRITE_CRASH_MS`, `OPENWRITE_POST_LOG`, `OPENWRITE_HANG_WRITE`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_API_KEY`, `process.env (every variable)`, `DSH_HOME` （另有 21 项） / (+21 more)
+
+## 发现 / Findings
+
+### 严重 / CRITICAL (2)
+
+- **严重 / CRITICAL** `exfil.environment-harvest-then-callback` — 同一个包内既有环境变量收集又有对外请求 / Environment harvest and an outbound request in the same package
+  中 该包读取或整体导出进程环境变量，同时又建立对外连接。CI 运行器和宿主会话都会把 API Key 导出到环境变量中，因此这一组合会把仍有效的凭据送出本机。
+  EN The package reads or dumps process environment values and also opens outbound connections. CI runners and harness sessions export API keys into the environment, so this combination sends working credentials off the machine.
+  - `scripts/profile-smoke.mjs:18` — `Object.entries(process.env`
+  - `scripts/release-smoke.mjs:26` — `Object.entries(process.env`
+  - `conductor/pipeline.py:75` — `def _request(self, path: str, *, method: str, body: dict | None,`
+  - `conductor/pipeline.py:108` — `return self._request(path, method="GET", body=None, timeout=HTTP_TIMEOUT)`
+  - ……另有 1 处 / … and 1 more location(s)
+  中 修复：删除环境变量的整体导出，只逐个读取插件确实需要、且有文档说明的变量。
+  EN Fix: Remove the environment dump, and read only individually documented variables that the plugin actually needs.
+- **严重 / CRITICAL** `obf.dynamic-code-eval` — 执行运行时拼装出来的代码 / Evaluates code built at runtime
+  中 该行执行的是一个并非源码字面量的表达式，真正运行的代码在插件运行时才被拼装出来，无法在 tarball 中审查。
+  EN The line evaluates an expression that is not a source literal, so the executed code is assembled while the plugin runs and cannot be reviewed in the tarball.
+  - `packages/studio-panel/scripts/smoke.mjs:81` — `new Function(bundle)()`
+  中 修复：用静态函数或数据表替代动态求值；任何审计都无法为运行时才存在的代码背书。
+  EN Fix: Replace the dynamic evaluation with a static function or a data table; there is no audit that can vouch for code that does not exist until runtime.
+
+### 高 / HIGH (12)
+
+- **高 / HIGH** `cred.env-harvest` — 读取或整体导出进程环境变量 / Reads or dumps the process environment
+  中 该行把整个环境当成一个值取走——序列化、遍历或打印它，而不是只取自己需要的那一个变量。CI 运行器和宿主都会把 API Key 导出到环境变量里，因此整体导出就是一次凭据收集。
+  EN The line takes the whole environment as a value — serializing it, iterating it, or printing it — rather than the one variable it needs. CI runners and the harness export API keys into the environment, so a dump is a credential harvest.
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:217` — `Object.assign(process.env`
+  - `scripts/maintenance.test.mjs:158` — `Object.entries(process.env`
+  - `scripts/profile-smoke.mjs:18` — `Object.entries(process.env`
+  - `scripts/release-smoke.mjs:26` — `Object.entries(process.env`
+  中 修复：只逐个读取插件文档中声明过的变量，绝不序列化整个环境对象，也不要把它写进日志或请求。
+  EN Fix: Read only the variables the plugin documents, one at a time, and never serialize the environment object or forward it into a log or request.
+- **高 / HIGH** `exfil.curl-post-body` — 用 curl 上传本地文件 / Uploads a local file with curl
+  中 该命令把磁盘上的文件 POST 到远程端点（`-d @`、`--data-binary @`、`-F …=@`、`-T`），本质上是伪装成表单提交的文件上传。
+  EN The command posts a file from disk to a remote endpoint (`-d @`, `--data-binary @`, `-F …=@`, `-T`), which is a file upload disguised as a form post.
+  - `scripts/e2e-workspace-ab.sh:25` — `curl -s -m 10 -X POST`
+  - `scripts/verify.sh:39` — `curl -s -m 8 -X POST`
+  中 修复：删除这次上传，或让目标地址显式且可配置，使用户能看清自己的数据去了哪里。
+  EN Fix: Remove the upload, or make the destination explicit and configurable so a user can see where their data goes.
+- **高 / HIGH** `net.excessive-distinct-hosts` — 包连接的不同主机数量多得不合常理 / Package contacts an implausible number of distinct hosts
+  中 对外目标涉及的主机数量超出插件合理所需。这种大面积铺开，正是让遥测、中继和投放服务躲在每一个都看似平常的端点之间的办法。
+  EN The package reaches 38 distinct remote hosts (github.com, liberapay.com, opencollective.com, paulmillr.com, registry.npmjs.org, registry.npmmirror.com, www.apache.org, www.w3.org, …). That is far more than a plugin needs, and the report cannot attribute the surplus to any documented feature.
+  - `.github/workflows/release-validation.yml:124` — `https://registry.npmjs.org`
+  - `assets/logo-dark.svg:1` — `http://www.w3.org/2000/svg`
+  - `LICENSE:3` — `http://www.apache.org/licenses/`
+  - `package-lock.json:44` — `https://registry.npmmirror.com/@agentclientprotocol/sdk/-/sdk-1.4.0.tgz`
+  中 修复：把目标列表收敛到有文档说明的服务，删除插件无法给出理由的任何端点。
+  EN Fix: Reduce the destination list to the documented service, and remove any endpoint the plugin cannot justify.
+- **高 / HIGH** `net.raw-ip-destination` — 向裸 IP 地址发送请求 / Sends a request to a bare IP address
+  中 目标写成了数字地址而不是主机名，因此绕过 DNS、无法归属到任何域名，而且通常指向内网网段，或指向并非插件所声称对接的服务。
+  EN The destination is written as a numeric address rather than a hostname, so it bypasses DNS, cannot be attributed to a domain, and usually points at a private range or a host that is not the service the plugin claims to talk to.
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:61` — `const item = { url: `http://127.0.0.1:${server.address().port}/uv.zip`, sha256: createHash('sha256').update(payload).digest('hex'), executable: 'uv' }`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:136` — `uv: { url: 'http://127.0.0.1/uv', sha256: '0'.repeat(64), executable: 'uv' },`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:137` — `python: { url: 'http://127.0.0.1/py', sha256: '0'.repeat(64), executable: 'python' },`
+  - `packages/openwrite-bridge/scripts/runtime-lifecycle.test.mjs:86` — `baseUrl: 'http://127.0.0.1:9', timeoutMs: 1_000,`
+  - ……另有 30 处 / … and 30 more location(s)
+  中 修复：使用文档中说明的主机名并通过 HTTPS 访问，删除所有能被指向裸地址的代码。
+  EN Fix: Use the documented hostname over HTTPS, and remove any code that can be pointed at a raw address.
+- **高 / HIGH** `obf.decoded-payload-literal` — 携带解码、转义或高熵字面量 / Carries a decoded, escaped or high-entropy literal
+  中 一个很长的字面量会在运行时被解码（base64、`atob`、`unescape`、`decodeURIComponent`），或者写满了密集的十六进制、Unicode 转义，或者呈现出编码数据块那种近乎均匀的字符分布。
+  EN A long literal is decoded at runtime (base64, `atob`, `unescape`, `decodeURIComponent`), written with dense hex or unicode escapes, or has the near-uniform character distribution of an encoded blob.
+  - `packages/openwrite-bridge/scripts/smoke.mjs:748` — `'{"scene_id":"scn_0123456789abcdef","target_chapter_id":"ch_002","target_index":0,"expected_revision":"sha256:scene","expected_source_revision":"sha256:source",…`
+  中 修复：把该值保存为可读源码，或保存为格式有文档说明的数据，让审查者能看清实际运行的到底是什么。
+  EN Fix: Store the value as readable source or as data with a documented format, so a reviewer can see what is actually being run.
+- **高 / HIGH** `obf.dynamic-require` — require 或 import 了动态计算的模块路径 / Requires or imports a computed module path
+  中 模块路径是计算出来的而非字面量，真正被加载的包由运行时决定，光看 import 语句根本查不出来。
+  EN The module path is computed rather than written literally, so the package that actually gets loaded is decided at runtime and cannot be checked by reading the imports.
+  - `scripts/install.sh:61` — `dog_package_name="$(node -e 'const p=require(process.argv[1]); process.stdout.write(String(p.name || ""))' "$DSH_DOG_DIR/package.json")"`
+  - `scripts/plugin-doctor.mjs:149` — `const host = await import(pathToFileURL(join(dir, manifest.main)).href)`
+  - `scripts/preset-smoke.mjs:27` — `const personaModule = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-persona')).href)`
+  - `scripts/runtime-acceptance.mjs:9` — `const { ManagedRuntime, stopOwnedProcess } = await import(pathToFileURL(join(installed, 'packages/openwrite-bridge/lib/managed-runtime.js')).href)`
+  中 修复：使用静态的 import 说明符，或用一张显式表把已知键映射到静态 import。
+  EN Fix: Use a static import specifier, or an explicit table mapping known keys to static imports.
+- **高 / HIGH** `persist.global-self-install` — 全局安装依赖包 / Installs a package globally
+  中 该命令把包安装到全局前缀，于是用户的 PATH 上多出一个可执行文件，而且当前项目删除后它仍然留在那里。
+  EN The command installs a package into the global prefix, which puts a new executable on the user's PATH and keeps it there after the current project is deleted.
+  - `.github/workflows/plugin-check.yml:32` — `npm install --global`
+  - `.github/workflows/release-validation.yml:29` — `npm install --global`
+  - `.github/workflows/release-validation.yml:73` — `npm install --global`
+  - `.github/workflows/release-validation.yml:103` — `npm install --global`
+  - ……另有 4 处 / … and 4 more location(s)
+  中 修复：改为本地安装，并通过项目自身的脚本调用该工具；全局安装应由用户自己决定，而不是由插件代劳。
+  EN Fix: Install locally and invoke the tool through the project's own scripts; global installs belong to the user's decision, not to a plugin.
+- **高 / HIGH** `persist.persistence-with-install-hook` — 安装钩子叠加持久化机制 / Install hook combined with a persistence mechanism
+  中 生命周期钩子在安装期间运行，而目录树中又有东西把自己注册为稍后运行。这一组合会在用户以为只是一次普通依赖安装的过程中装入一个常驻组件。
+  EN A lifecycle hook runs during install and something in the tree registers itself to run later. The combination installs a resident component during what the user believed was a normal dependency install.
+  - `scripts/setup-openwrite-daemon.sh:169` — `launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true`
+  - `scripts/setup-openwrite-daemon.sh:171` — `if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then`
+  - `scripts/setup-openwrite-daemon.sh:177` — `if launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/dev/null; then`
+  - `package.json:23` — `"prepare": "node scripts/prepare.mjs",`
+  中 修复：删除这一定时注册。任何需要持续运行的东西，都应由用户作为一个明确可见的步骤来设置。
+  EN Fix: Remove the scheduling. Anything that should keep running must be set up by the user as a deliberate, visible step.
+- **高 / HIGH** `persist.scheduled-task-write` — 安装计划任务、agent 或系统服务 / Installs a scheduled task, agent or service
+  中 该行注册了稍后会自动运行的东西——cron 条目、launch agent、systemd unit、Windows 计划任务或注册表 Run 键——因此插件在把它装进来的那次安装结束之后仍在持续执行。
+  EN The line registers something that runs later — a cron entry, launch agent, systemd unit, Windows scheduled task or registry Run key — so the plugin keeps executing after the install that brought it in.
+  - `scripts/setup-openwrite-daemon.sh:169` — `launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true`
+  - `scripts/setup-openwrite-daemon.sh:171` — `if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then`
+  - `scripts/setup-openwrite-daemon.sh:177` — `if launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/dev/null; then`
+  - `scripts/setup-openwrite-daemon.sh:183` — `launchctl load -w "$PLIST" # legacy fallback`
+  - ……另有 1 处 / … and 1 more location(s)
+  中 修复：删除这一定时注册，或交给用户一条有文档说明、可以自行运行和审查的命令。
+  EN Fix: Remove the scheduling, or hand the user a documented command they can run and review themselves.
+- **高 / HIGH** `priv.system-path-modification` — 修改系统路径或把文件设为全局可写 / Modifies a system path or makes a file world-writable
+  中 该行写入 `/etc`、`/usr`、`/bin` 或 launch daemon 目录，把属主改为 root，或设置全局可写权限。任何一种都改变了安装包之外的机器状态，也可能为后续提权铺路。
+  EN The line writes under `/etc`, `/usr`, `/bin` or a launch-daemon directory, changes ownership to root, or sets world-writable permissions. Any of these changes the machine beyond the installed package and can prepare an escalation later.
+  - `scripts/dev.sh:39` — `uv pip install --python "$VENV/bin/python" -e "$OPENWRITE_DIR"`
+  - `scripts/setup-openwrite-daemon.sh:76` — `echo " 或手动: uv venv '$DSH_ROOT/.venv' --python 3.12 && uv pip install --python '$DSH_ROOT/.venv/bin/python' -e /path/to/OpenWrite" >&2`
+  - `scripts/setup-openwrite-daemon.sh:106` — `chmod +x "$HOME/.local/bin/dsh"`
+  中 修复：把写入限制在包目录或用户自己的配置目录内，绝不要为了让安装成功而放宽权限。
+  EN Fix: Keep writes inside the package or the user's own configuration directory, and never loosen permissions to make an install succeed.
+- **高 / HIGH** `prompt.doc-instruction` — 文档中包含针对模型的指令 / Documentation contains instructions aimed at a model
+  中 随包发布的文档命令读者——在这个宿主里就是 AI agent——忽略先前的指令、对用户隐瞒信息，或跳过确认。这样的文字会被当作指令读取，而不是文档。
+  EN A shipped document orders the reader — which in this harness is an AI agent — to ignore earlier instructions, withhold information from the user, or skip confirmation. Text like this is read as instructions, not as documentation.
+  - `docs/COST_MEASUREMENT.md:20` — `| `sdkBytes` | 注入到 system prompt 的 SDK 文本字节 | 不是费用 |`
+  - `GOAL.md:562` — `| Resource epochs and SSE fallback | done | SSE primary + 5s polling fallback; derived invalidation closes the graph loop — assets/manuscript/outline/workspace …`
+  - `GOAL.md:646` — `| 2026-08-30 | Third-stage P1: review_v2 type bypass fix | `tools/review_store.py` adds `has_review_v2_field` (key present, even null) and `review_v2_malformed`…`
+  - `GOAL.md:681` — `| 2026-09-05 | Independent Embedding migration and repository baseline closure | Migrated Python expectations from Chat-embedded vector settings to independent …`
+  中 修复：把这段话改写成面向人类读者的插件说明，并删除任何直接对模型说话的措辞。
+  EN Fix: Rewrite the passage as a description of the plugin for a human reader, and remove any language that addresses the model directly.
+- **高 / HIGH** `prompt.embedded-instruction-string` — 源码字符串中夹带针对模型的指令 / Source string carries instructions aimed at a model
+  中 源码中的字符串字面量——通常是工具描述或系统提示词片段——要求模型绕过确认或对用户隐瞒某些事，于是它作为一条指令进入上下文窗口。
+  EN A string literal in the source — typically a tool description or system prompt fragment — tells the model to bypass confirmation or to hide something from the user, so it lands in the context window as a directive.
+  - `packages/openwrite-bridge/scripts/smoke.mjs:771` — `'acceptance start cannot bypass the confirmation gate'`
+  - `packages/openwrite-bridge/src/tools.ts:717` — `'Omit version to create a new document; set force to bypass the lock.'`
+  - `packages/openwrite-bridge/src/tools.ts:722` — `'Bypass the version check (default false).'`
+  - `scripts/plugin-doctor.test.mjs:57` — `'a client export cannot bypass web checks by omitting dsh.client'`
+  中 修复：如实描述工具的行为，删除那些会改变 agent 对待用户方式的指令。
+  EN Fix: Describe the tool's behavior factually and remove directives that change how the agent treats the user.
+
+### 中 / MEDIUM (5)
+
+- **中 / MEDIUM** `harness.reserved-tool-name` — 用保留名称注册工具 / Registers a tool under a reserved name
+  中 注册的工具使用了宿主内置工具的名字，模型可能自以为在调用核心实现，实际调用的却是这一份，工具调用记录也随之失真。
+  EN A tool is registered with the name of a built-in harness tool, so the model may call this implementation while believing it is calling the core one, and the tool-call record becomes misleading.
+  - `presets/dante/agent.cordis.yml:260` — `toolName: subagent`
+  - `presets/goethe/agent.cordis.yml:297` — `toolName: subagent`
+  - `presets/openwrite/agent.cordis.yml:272` — `toolName: subagent`
+  - `vendor/dsh-dog/src/client/index.tsx:69` — `name: 'shell.overlay',`
+  中 修复：给工具加上插件专属前缀重命名，不要占用保留名称。
+  EN Fix: Rename the tool with a plugin-specific prefix instead of claiming a reserved name.
+- **中 / MEDIUM** `install.hook-runs-shell-code` — 安装期钩子执行的不只是构建 / Lifecycle hook runs more than a build
+  中 该钩子命令不属于常见的编译与拷贝步骤，安装这个包时会以用户权限运行任意代码，而这一切发生在任何人来得及检查之前。
+  EN This hook command is not one of the usual compile-and-copy steps, so installing the package runs arbitrary code with the user's privileges before anything can be inspected.
+  - `package.json:23` — `"prepare": "node scripts/prepare.mjs",`
+  中 修复：把钩子收敛为 `tsc` 或 `npm run build` 之类的构建命令，或把这项工作移到一个由用户主动执行的显式脚本里。
+  EN Fix: Reduce the hook to a build command such as `tsc` or `npm run build`, or move the work into an explicit script the user chooses to run.
+- **中 / MEDIUM** `net.plaintext-http` — 使用明文 HTTP 端点 / Uses a plaintext HTTP endpoint
+  中 指向公网主机的 `http://` URL 以明文收发数据，传输途中可以被读取或篡改；这样到达的内容也可以被换成另一份载荷。
+  EN An `http://` URL to a public host sends and receives data in the clear, where it can be read or rewritten in transit; anything that arrives this way can also be replaced with a different payload.
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:61` — `http://127.0.0.1:${server.address(`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:136` — `http://127.0.0.1/uv`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:137` — `http://127.0.0.1/py`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:199` — `http://proxy.example:8080`
+  - ……另有 35 处 / … and 35 more location(s)
+  中 修复：改用 `https://`，并固定你实际要通信的主机。
+  EN Fix: Switch to `https://` and pin the host you intend to talk to.
+- **中 / MEDIUM** `obf.long-minified-line` — 整行是压缩或机器生成的数据块 / Line is a single minified or machine-generated blob
+  中 该行超过 500 个字符且几乎没有空白，正是打包载荷、压缩字符串表或机器生成单行代码的样子。这样的一行用肉眼什么也审不出来。
+  EN The line is over 500 characters with almost no whitespace, which is what a bundled payload, a packed string table or a machine-generated one-liner looks like. Nothing on such a line is reviewable by eye.
+  - `packages/studio-panel/src/client/index.ts:30` — `manuscript: ['novel_doc_read', 'novel_doc_write', 'novel_document_change_plan', 'novel_structured_change_plan', 'novel_doc_create', 'novel_write_chapter', 'nove…`
+  - `packages/studio-panel/src/client/TasksView.tsx:64` — `phase: (PHASES as readonly string[]).includes(phase) ? phase as TaskPhase : null, phaseIndex: number(item['phase_index']), progress: parseProgress(item['progres…`
+  - `packages/studio-panel/src/client/TasksView.tsx:74` — `const labels: Record<string, Parameters<TasksViewProps['t']>[0]> = { chapter_write: 'tasks.type.chapter_write', chapter_review: 'tasks.type.chapter_review', con…`
+  - `packages/studio-panel/vendor/vditor/dist/js/icons/ant.js:14` — `<path d="M25.785 24.935c1.681 0 3.054-1.392 3.054-3.096 0-2.058-3.054-5.416-3.054-5.416s-3.054 3.358-3.054 5.416c0 1.704 1.373 3.096 3.054 3.096zM11.28 23.239c0…`
+  - ……另有 2 处 / … and 2 more location(s)
+  中 修复：发布未压缩的源码，或在 README 中说明该文件由哪个构建产出、可读源码在哪里。
+  EN Fix: Ship unminified source, or state in the README which build produced the file and where the readable source lives.
+- **中 / MEDIUM** `persist.shell-rc-append` — 追加写入 shell 启动文件 / Appends to a shell startup file
+  中 该行写入了 `.bashrc`、`.zshrc`、`.profile` 或 fish 配置，因此改动会在之后每个交互式 shell 中生效，而且删掉包目录也不会消失。
+  EN The line writes into `.bashrc`, `.zshrc`, `.profile` or a fish config, so the change takes effect in every future interactive shell and survives removing the package directory.
+  - `packages/studio-panel/scripts/components/model-view.test.tsx:112` — `items = items.filter((item) => item.id !== body.profile_id)`
+  - `scripts/maintenance.test.mjs:57` — `manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(item => item !== name)`
+  - `scripts/plugin-doctor.mjs:100` — `if (manifest.dsh?.profile?.bundles?.filter(n => n === name).length !== 1) throw new Error('standard bundle not installed exactly once')`
+  - `scripts/profile-smoke.mjs:78` — `manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((name) => name !== bridgeName);`
+  - ……另有 1 处 / … and 1 more location(s)
+  中 修复：不要修改 shell 启动文件；如果需要 shell 集成，就把那行内容打印出来，由用户自行决定是否添加。
+  EN Fix: Do not modify shell startup files; if a shell integration is required, print the line for the user to add deliberately.
+
+### 低 / LOW (6)
+
+- **低 / LOW** `cred.credential-path-mention` — 出现凭据路径但并未读取 / Credential path appears without being read
+  中 某一行提到了敏感路径，却没有执行读取。报告记录这一条，是为了把仅仅出现在日志或错误信息中的路径，与真正被打开的路径区分开。
+  EN A sensitive path is named on a line that performs no read. This is reported so the report can distinguish a path that is merely echoed in a log or error message from one that is actually opened.
+  - `packages/openwrite-bridge/scripts/contract-smoke.mjs:78` — `profiles: [{ ...fixture.model_profile.profiles[0], api_key: 'must-not-appear' }],`
+  - `packages/openwrite-bridge/scripts/contract-smoke.mjs:141` — `leakedGenerated.profiles[0].api_key = 'must-not-appear'`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:154` — `recorded.push({ command, args: [...args], env: { ...(options.env ?? {}) } })`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:158` — `env: { ...options.env, ...extraEnv() },`
+  - ……另有 45 处 / … and 45 more location(s)
+  中 修复：确认该路径只出现在文档或提示信息中；如果它随后被传给读取调用，那一行就会触发更严重级别的读取规则。
+  EN Fix: Confirm the path is only used in documentation or messaging; if it is later passed to a read call, expect the higher-severity read rules to fire on that line.
+- **低 / LOW** `cred.many-secret-env-vars` — 读取多个不同名称的密钥类环境变量 / Reads several differently-named secret environment variables
+  中 这里的一行、或整个包里的若干行，读取了名称看起来像凭据的环境变量。只读一个文档中声明的 key 是插件本该有的认证方式；枚举多个不同名称的密钥，则是在收集凭据而不是在使用凭据。
+  EN One line here, or several across the package, read environment variables whose names look like credentials. Reading a single documented key is how a plugin is meant to authenticate; enumerating many differently-named ones is how credentials are gathered rather than used.
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:213` — `process.env.OPENAI_API_KEY`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:214` — `process.env.ANTHROPIC_API_KEY`
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:215` — `process.env.LLM_API_KEY`
+  中 修复：只保留插件确实需要且有文档说明的变量，删掉与任何功能无关的密钥读取。
+  EN Fix: Keep to the variables this plugin documents and needs, and delete reads of keys it has no feature for.
+- **低 / LOW** `cred.read-dotenv-or-history` — 读取 dotenv 文件或 shell 历史 / Reads a dotenv file or shell history
+  中 该行读取了 `.env` 或 shell 历史文件。这两处都是令牌、云密钥和曾经粘贴过的密钥堆积的地方，而 shell 历史还会勾勒出用户的基础设施全貌。
+  EN This line reads `.env` or a shell history file. Both are where tokens, cloud keys and previously pasted secrets accumulate, and a shell history also maps out the user's infrastructure.
+  - `scripts/lifecycle.test.mjs:126` — `return (await readFile(f.env.TEST_LOG, 'utf8')).trim().split('\n').map(JSON.parse);`
+  中 修复：通过插件配置 schema 加载配置，而不是读取 dotenv 文件；永远不要打开用户的历史记录。
+  EN Fix: Load configuration through the plugin config schema instead of reading dotenv files, and never open the user's history.
+- **低 / LOW** `net.token-or-blob-in-url` — 把凭据或编码数据块放进 URL / Puts a credential or encoded blob in a URL
+  中 令牌形状的查询参数、内嵌的 `user:password` 授权部分，或超长高熵的查询值，都意味着密钥或载荷数据在 URL 中传输，最终会留在访问日志、代理和浏览器历史里。
+  EN A token-shaped query parameter, an embedded `user:password` authority, or a long high-entropy query value means secret material or payload data travels in a URL, where it lands in access logs, proxies and browser history.
+  - `packages/openwrite-bridge/scripts/managed-runtime.test.mjs:76` — `'https://«redacted»@example.test/a?token=abc&key=def authorization: Bearer-secret api_key=xyz'`
+  中 修复：凭据放在 Authorization 头里发送，载荷用 POST 放在请求体中，不要编码进查询字符串。
+  EN Fix: Send credentials in an Authorization header, and POST payloads in the body rather than encoding them into the query string.
+- **低 / LOW** `supply.build-script-excluded-from-package` — 安装钩子运行的脚本被发布文件集排除在外 / Install hook runs a script the published file set excludes
+  中 清单声明的安装钩子所引用的脚本没有被 `files` 白名单包含，或被 `.npmignore` 匹配排除。这样一来，从仓库安装时运行的文件与被审计和测试过的并不是同一个，甚至根本不存在。
+  EN The prepare hook runs scripts/prepare.mjs, but .npmignore matches scripts/prepare.mjs. The published tarball therefore behaves differently from this source tree.
+  - `package.json:23` — `"prepare": "node scripts/prepare.mjs",`
+  中 修复：把被引用的脚本加入 `files`，或把钩子移到会被发布的文件里。
+  EN Fix: Add the referenced script to `files`, or move the hook into a file that is published.
+- **低 / LOW** `supply.packaging-constraints` — 清单内置依赖或限定平台 / Manifest bundles dependencies or pins platforms
+  中 `bundledDependencies` 会把依赖的私有副本打进 tarball，使这部分代码绕过仓库的完整性元数据；而 `os`/`cpu` 数组则直接限制了包能安装在哪些机器上。
+  EN `bundledDependencies` ships a private copy of dependencies inside the tarball, which bypasses the registry's integrity metadata for that code, and `os`/`cpu` arrays restrict which machines the package installs on at all.
+  - `package.json:127` — `"os": [`
+  中 修复：通过仓库配合锁文件发布依赖，并把平台限制写在 README 里，而不是写进 `os`/`cpu` 字段。
+  EN Fix: Ship dependencies through the registry with a lockfile, and document platform limits in the README rather than in `os`/`cpu` fields.
+
+_按类别 / By category:_ 混淆 / obfuscation 4 · 凭据读取 / credential access 4 · 网络回调 / network callbacks 4 · 持久化 / persistence 4 · 数据外传 / exfiltration 2 · 提示注入 / prompt injection 2 · 供应链 / supply chain 2 · 提权 / privilege 1 · 滥用宿主环境 / harness abuse 1 · 安装脚本 / install scripts 1
+
+## 扫描说明 / Scan notes
+
+- stripped the archive's single top-level directory `Openwrite-HEAD/`
+- skipped packages/studio-panel/vendor/vditor/dist/js/lute/lute.min.js: 4000699 bytes exceeds the 524288-byte per-file cap
+- skipped release/openwrite-5.8.2-py3-none-any.whl: 2663046 bytes exceeds the 524288-byte per-file cap
+- skipped release/wheels/cryptography-50.0.1-cp312-abi3-macosx_13_0_x86_64.whl: 3875636 bytes exceeds the 524288-byte per-file cap
+- outbound fetching was permitted for this audit
+- grade forced to D by a critical finding: exfil.environment-harvest-then-callback — Environment harvest and an outbound request in the same package
+- grade D is at or below the install floor D: this source is refused
+
+---
+
+高评级表示这份规则目录中没有命中，并不等于该包安全。静态分析看不到运行期才拼装出来的行为；部分扫描已在上方标注。 / A high grade means no rule in this catalog fired, not that the package is safe. Static analysis cannot see behavior assembled at runtime, and a partial scan is marked as such above.

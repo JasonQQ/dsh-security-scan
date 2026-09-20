@@ -96,17 +96,37 @@ export function isSafeRelativePath(path: string): boolean {
 }
 
 /**
+ * Normalize a subdirectory scope to `prefix/`, or `undefined`.
+ *
+ * @param subpath - the subdirectory, with or without surrounding slashes.
+ * @returns the prefix to match against, or `undefined` when unscoped.
+ */
+export function subpathPrefix(subpath: string | undefined): string | undefined {
+  if (subpath === undefined) return undefined;
+  const trimmed = subpath.replace(/^\/+|\/+$/g, '');
+  return trimmed.length === 0 ? undefined : `${trimmed}/`;
+}
+
+/**
  * Stage a directory tree in memory.
  *
  * Symlinks are not followed: a link out of the tree would let the scanned
  * package make the scanner read files it never shipped. Only regular files are
  * staged.
  *
+ * `subpath` scopes staging rather than filtering afterwards, and that ordering is
+ * the whole point: a marketplace monorepo entry names a plugin several hundred
+ * files into a large repository, and post-filtering means the caps are consumed
+ * by files outside the scope — which is how a subdirectory that plainly exists
+ * came back as "no files under ... were staged".
+ *
  * @param root - absolute directory to scan.
  * @param limits - caps to apply.
+ * @param subpath - stage only this subdirectory, stripping the prefix.
  * @returns the staged source.
  */
-export function loadDirectory(root: string, limits: LoadLimits = DEFAULT_LIMITS): StagedSource {
+export function loadDirectory(root: string, limits: LoadLimits = DEFAULT_LIMITS, subpath?: string): StagedSource {
+  const prefix = subpathPrefix(subpath);
   const files: SourceFile[] = [];
   const notes: string[] = [];
   let truncated = false;
@@ -147,11 +167,13 @@ export function loadDirectory(root: string, limits: LoadLimits = DEFAULT_LIMITS)
         continue;
       }
       if (!stats.isFile()) continue;
+      const filePath = toPosix(relative(root, absolute));
+      if (prefix !== undefined && !filePath.startsWith(prefix)) continue;
+      const scopedPath = prefix === undefined ? filePath : filePath.slice(prefix.length);
+      if (scopedPath.length === 0) continue;
       if (stats.size > limits.maxFileBytes) {
         truncated = true;
-        notes.push(
-          `skipped ${toPosix(relative(root, absolute))}: ${stats.size} bytes exceeds the ${limits.maxFileBytes}-byte per-file cap`,
-        );
+        notes.push(`skipped ${scopedPath}: ${stats.size} bytes exceeds the ${limits.maxFileBytes}-byte per-file cap`);
         continue;
       }
       if (totalBytes + stats.size > limits.maxTotalBytes) {
@@ -163,11 +185,11 @@ export function loadDirectory(root: string, limits: LoadLimits = DEFAULT_LIMITS)
       try {
         bytes = readFileSync(absolute);
       } catch (error) {
-        notes.push(`could not read ${toPosix(relative(root, absolute))}: ${message(error)}`);
+        notes.push(`could not read ${scopedPath}: ${message(error)}`);
         continue;
       }
       totalBytes += bytes.length;
-      files.push({ path: toPosix(relative(root, absolute)), bytes });
+      files.push({ path: scopedPath, bytes });
     }
   };
 
@@ -222,7 +244,8 @@ function parseHeader(block: Buffer, offset: number): TarEntry | undefined {
  * @param limits - caps to apply.
  * @returns the staged source, with dropped entries noted.
  */
-export function loadTarball(archive: Buffer, limits: LoadLimits = DEFAULT_LIMITS): StagedSource {
+export function loadTarball(archive: Buffer, limits: LoadLimits = DEFAULT_LIMITS, subpath?: string): StagedSource {
+  const prefix = subpathPrefix(subpath);
   const notes: string[] = [];
   let tar: Buffer;
   if (archive.length > 2 && archive[0] === 0x1f && archive[1] === 0x8b) {
@@ -233,6 +256,17 @@ export function loadTarball(archive: Buffer, limits: LoadLimits = DEFAULT_LIMITS
     }
   } else {
     tar = archive;
+  }
+
+  // The wrapper has to be known *before* the loop, not after it. A subpath such
+  // as `hindsight-integrations/coding-agents` is written against the stripped
+  // tree, while the entries carry it as
+  // `hindsight-HEAD/hindsight-integrations/coding-agents/...`. Deciding after the
+  // loop meant the scoped check could never match, so every scoped archive
+  // staged zero files.
+  const rootPrefix = detectRootPrefix(tar);
+  if (rootPrefix !== undefined) {
+    notes.push(`stripped the archive's single top-level directory \`${rootPrefix}\``);
   }
 
   const files: SourceFile[] = [];
@@ -256,10 +290,13 @@ export function loadTarball(archive: Buffer, limits: LoadLimits = DEFAULT_LIMITS
       notes.push(`dropped archive entry "${clipName(name)}": path escapes the archive root`);
       continue;
     }
-    // npm tarballs wrap everything in `package/`; stripping it makes reports
-    // read like the published package rather than like the tarball.
-    const stripped = relativePath.replace(/^package\//, '');
-    if (stripped.length === 0) continue;
+    if (relativePath.length === 0) continue;
+    const unwrapped = rootPrefix === undefined || !relativePath.startsWith(rootPrefix)
+      ? relativePath
+      : relativePath.slice(rootPrefix.length);
+    if (prefix !== undefined && !unwrapped.startsWith(prefix)) continue;
+    const scopedPath = prefix === undefined ? unwrapped : unwrapped.slice(prefix.length);
+    if (scopedPath.length === 0) continue;
     if (files.length >= limits.maxFiles) {
       truncated = true;
       notes.push(`stopped unpacking: file count cap of ${limits.maxFiles} reached`);
@@ -267,7 +304,7 @@ export function loadTarball(archive: Buffer, limits: LoadLimits = DEFAULT_LIMITS
     }
     if (size > limits.maxFileBytes) {
       truncated = true;
-      notes.push(`skipped ${stripped}: ${size} bytes exceeds the ${limits.maxFileBytes}-byte per-file cap`);
+      notes.push(`skipped ${scopedPath}: ${size} bytes exceeds the ${limits.maxFileBytes}-byte per-file cap`);
       continue;
     }
     if (totalBytes + size > limits.maxTotalBytes) {
@@ -276,11 +313,56 @@ export function loadTarball(archive: Buffer, limits: LoadLimits = DEFAULT_LIMITS
       break;
     }
     totalBytes += size;
-    files.push({ path: stripped, bytes: Buffer.from(body) });
+    files.push({ path: scopedPath, bytes: Buffer.from(body) });
   }
 
   files.sort((left, right) => left.path.localeCompare(right.path));
   return { files, notes, truncated, totalBytes };
+}
+
+/**
+ * Find an archive's single wrapping directory, from the tar headers alone.
+ *
+ * Both conventions that matter here wrap everything: npm tars under `package/`,
+ * GitHub's `tar.gz` under `<repo>-<ref>/`. Leaving the wrapper on makes every
+ * path in a report read `dsh-btw-plugin-HEAD/src/index.js`, which is noise in
+ * the one place a reader is looking for a file to open. A general rule beats
+ * enumerating wrapper names: if every regular-file entry shares one first
+ * segment, that segment is a wrapper, and if they do not, there is nothing to
+ * strip.
+ *
+ * This is a separate header-only pass — no bodies are copied — because the
+ * answer is needed while staging, not after it, and it cannot be inferred from
+ * whichever entry happens to come first without risking mangling an unwrapped
+ * archive's paths.
+ *
+ * @param tar - the uncompressed tar bytes.
+ * @returns the wrapper prefix, including its trailing slash, or undefined.
+ */
+function detectRootPrefix(tar: Buffer): string | undefined {
+  let candidate: string | undefined;
+  let sawEntry = false;
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = parseHeader(tar.subarray(offset, offset + 512), offset);
+    if (header === undefined) break;
+    const { name, size, typeFlag, bodyOffset } = header;
+    offset = bodyOffset + Math.ceil(size / 512) * 512;
+    if (typeFlag === 'L' || typeFlag === 'x' || typeFlag === 'g' || typeFlag === 'K') continue;
+    if (typeFlag !== '0' && typeFlag !== '\0' && typeFlag !== '') continue;
+    const relativePath = name.replace(/^\.\//, '');
+    // Entries that escape the archive root are dropped by the staging loop, so
+    // they must not get a vote here either: one `../../etc/passwd` would
+    // otherwise disable wrapper stripping for the whole archive.
+    if (!isSafeRelativePath(relativePath)) continue;
+    const slash = relativePath.indexOf('/');
+    if (slash <= 0) return undefined; // a top-level file means no wrapper
+    const first = relativePath.slice(0, slash + 1);
+    if (candidate === undefined) candidate = first;
+    else if (candidate !== first) return undefined;
+    sawEntry = true;
+  }
+  return sawEntry ? candidate : undefined;
 }
 
 /** Shorten an archive entry name for a note. */

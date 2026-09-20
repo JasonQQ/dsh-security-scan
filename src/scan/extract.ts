@@ -173,6 +173,7 @@ export function toFileInfo(path: string, bytes: Buffer): FileInfo {
     lines,
     ...(generated ? { generated: true } : {}),
     ...(isBuildConfig(path) ? { devOnly: true } : {}),
+    role: fileRoleOf(path, kind, generated),
   };
 }
 
@@ -201,18 +202,125 @@ export function isBuildConfig(path: string): boolean {
  * path (`lib/`, `dist/`) would be wrong in both directions — plenty of plugins
  * hand-write `lib/`, and plenty bundle into `src/`.
  *
+ * The structural tests alone missed the commonest shape in the wild. A bundle
+ * produced with `--minify-whitespace` (or a lightly-bundled CJS build) keeps
+ * thousands of medium-length lines, so it looks authored by shape while being
+ * generated in fact — and the batch run showed the consequence: the obfuscation
+ * correlations fired on 67% of real plugins, because the "obfuscated payload"
+ * they found was the bundler's own module-loader preamble. Emitting a runtime
+ * loader is what bundling *is*, so those signatures are conclusive on their own.
+ *
  * @param lines - the decoded lines.
  * @param bytes - the file's size.
  * @returns true when the shape says a build tool wrote it.
  */
 export function looksGenerated(lines: readonly string[], bytes: number): boolean {
   if (bytes < 8 * 1024) return false;
-  // Few lines, many bytes: the definition of minification.
-  if (lines.length <= 40 && bytes / Math.max(1, lines.length) > 2000) return true;
   // A sourcemap trailer is a build tool's signature even in lightly bundled output.
   if (/\/\/[#@]\s*sourceMappingURL=/.test(lines.slice(-3).join('\n'))) return true;
+  // Few lines, many bytes: the definition of minification.
+  if (lines.length <= 40 && bytes / Math.max(1, lines.length) > 2000) return true;
   // One enormous line that is almost all non-whitespace.
-  return lines.some((line) => line.length > 50_000 && line.split(/\s+/).length < line.length / 200);
+  if (lines.some((line) => line.length > 50_000 && line.split(/\s+/).length < line.length / 200)) return true;
+  return hasBundlerRuntime(lines);
+}
+
+/**
+ * Signatures of a module bundle's own runtime.
+ *
+ * Each of these is something a bundler writes and a person does not: the private
+ * helper names esbuild emits (`__toESM`, `__commonJS`, `__defProp`) exist so
+ * generated code cannot collide with application identifiers, and webpack's
+ * `__webpack_require__`/`webpackJsonp` are its public runtime. One is enough to
+ * identify the file, because no hand-written module defines them accidentally.
+ *
+ * Scanned across the whole file, not just its head. A bundle's loader is emitted
+ * where the first module that needs it is defined, which for a concatenated build
+ * is frequently near the end — the file this check was written for carried its
+ * `__modules[id]` table on line 2138, and a head-only scan missed it.
+ *
+ * @param lines - the decoded lines.
+ * @returns true when a bundler's runtime is present.
+ */
+function hasBundlerRuntime(lines: readonly string[]): boolean {
+  for (const line of lines) {
+    // Cheap pre-filter: the markers all contain one of these, and most lines in
+    // a file contain none of them, so the regexes run on a small subset.
+    if (!line.includes('__') && !line.includes('webpack') && !line.includes('System.register')) continue;
+    for (const pattern of BUNDLER_RUNTIME_MARKERS) {
+      if (pattern.test(line)) return true;
+    }
+  }
+  return false;
+}
+
+/** Markers that only a bundler's runtime emits. */
+const BUNDLER_RUNTIME_MARKERS: readonly RegExp[] = [
+  /__webpack_require__|webpackJsonp|__webpack_modules__/,
+  /\bSystem\.register\(/,
+  /\b__d\(function/,
+  /__commonJS\(|__toESM\(|__toCommonJS\(|__defProp\(|__getOwnPropNames\(|__export\(|__require\(/,
+  /\b__modules\[/,
+];
+
+/**
+ * What kind of evidence a file is, for judging how strong a finding in it is.
+ *
+ * `kind` answers "what language is this"; role answers "whose behavior does a
+ * finding here describe". Those are different questions, and the batch run is
+ * what showed the difference matters:
+ *
+ * - A `rm -rf /` in `test/sanitize-command.test.js` is an *input to a sanitizer*
+ *   — the file asserts that the destructive command is rejected. Read as shipped
+ *   behavior it is a critical finding, and it graded 11 of 91 real plugins D.
+ * - A credential path in a `CHANGELOG.md` entry is prose about a past release,
+ *   but it satisfied the credential half of an exfiltration correlation.
+ * - A semgrep rule that *blocks* `169.254.169.254` was reported as reaching it.
+ *
+ * Findings in these files are still worth reporting — a skill file's instructions
+ * are exactly what the prompt-injection rules exist for, and a fixture can reveal
+ * what the code was built to handle. They are not, however, evidence about what
+ * the package does when a user installs it, which is the question a trust grade
+ * answers. So they are reported at a capped severity instead of deciding a grade.
+ */
+export type FileRole = 'source' | 'test' | 'doc' | 'generated' | 'config';
+
+/**
+ * Classify a file's role.
+ *
+ * @param path - path relative to the scanned root.
+ * @param kind - the file kind.
+ * @param generated - whether the shape says a build tool wrote it.
+ * @returns the role.
+ */
+export function fileRoleOf(path: string, kind: FileKind, generated: boolean): FileRole {
+  // Generated output wins over everything: a bundled test helper is still a
+  // bundle, and the reviewed source it came from is usually staged beside it.
+  if (generated) return 'generated';
+  if (kind === 'manifest' || kind === 'config') return 'config';
+  if (kind === 'doc') return 'doc';
+  if (isTestPath(path)) return 'test';
+  return 'source';
+}
+
+/**
+ * Whether a path names test code, a fixture, or an example.
+ *
+ * `examples/` and `docs/` are included deliberately: an example plugin's
+ * `fetch(…)` and `spawn(…)` document how to call the API, and a proof-of-concept
+ * script under `docs/` is an illustration — one such file spawns
+ * `"/usr/bin/logger; rm -rf /"` precisely to demonstrate that the hook is unsafe,
+ * which read as a shipped destructive command.
+ *
+ * @param path - path relative to the scanned root.
+ * @returns true when the file is development-only test material.
+ */
+export function isTestPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  const base = lower.slice(lower.lastIndexOf('/') + 1);
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(base)) return true;
+  if (/^(?:test|tests|__tests__|__mocks__|fixtures|__fixtures__|e2e|examples?|bench|benchmarks|docs?)\//.test(lower)) return true;
+  return /\/(?:test|tests|__tests__|__mocks__|fixtures|__fixtures__|e2e|examples?|docs?)\//.test(lower);
 }
 
 /**
@@ -453,6 +561,17 @@ export function extract(staged: StagedSource): Extraction {
         notes.push(`${info.path} is not valid JSON and was not treated as a manifest`);
       }
     }
+
+    // Documentation describes the package; it does not run. A README's link list
+    // is not a set of destinations the plugin contacts, and a changelog naming a
+    // credential path is not a credential read — but every URL and path in prose
+    // was being recorded as a capability, and the batch run showed the cost: the
+    // "domains contacted" list for a real plugin was
+    // `keepachangelog.com`, `www.contributor-covenant.org`, `www.w3.org`, and
+    // `net.excessive-distinct-hosts` fired on 57 of 91 packages counting README
+    // links. Line rules still scan documents — that is where prompt injection
+    // lives — but the capability inventory is about code.
+    if (info.kind === 'doc') continue;
 
     for (let index = 0; index < info.lines.length; index += 1) {
       const raw = info.lines[index] as string;

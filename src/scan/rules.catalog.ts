@@ -43,6 +43,7 @@
  */
 
 import type { Evidence, InstallScript, Severity } from '../types.js';
+import { SEVERITY_ORDER } from '../types.js';
 import {
   EXFIL_HOSTS,
   METADATA_HOSTS,
@@ -380,6 +381,42 @@ function credentialMention(line: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Hosts that appear in identifiers rather than in requests.
+ *
+ * These are written as URLs because a URI is how the standards name themselves,
+ * not because anything is fetched from them: `xmlns="http://www.w3.org/2000/svg"`
+ * identifies a vocabulary, `http://opensource.org/licenses/MIT` identifies a
+ * license, and `http://schemas.android.com/apk/res/android` identifies a schema.
+ * Flagging them as plaintext transport is a category error, and at batch scale it
+ * was the single most common finding in the whole run — 73 hits across 90
+ * packages. Documentation hosts are included because a link in prose is not an
+ * endpoint the package calls.
+ */
+const REFERENCE_HOSTS: readonly RegExp[] = [
+  /(?:^|\.)w3\.org$/,
+  /(?:^|\.)schemas?\./,
+  /(?:^|\.)purl\.org$/,
+  /(?:^|\.)openjdk\.net$/,
+  /(?:^|\.)json-schema\.org$/,
+  /(?:^|\.)spdx\.org$/,
+  /(?:^|\.)opensource\.org$/,
+  /(?:^|\.)creativecommons\.org$/,
+  /(?:^|\.)gnu\.org$/,
+  /(?:^|\.)apache\.org$/,
+  /(?:^|\.)example\.(?:com|org|net)$/,
+  /(?:^|\.)(?:invalid|test|localhost|local)$/,
+  /(?:^|\.)keepachangelog\.com$/,
+  /(?:^|\.)contributor-covenant\.org$/,
+  /(?:^|\.)semver\.org$/,
+];
+
+/** Whether a host is a standards identifier or a documentation link. */
+function isNamespaceOrReferenceHost(host: string): boolean {
+  const lowered = host.toLowerCase();
+  return REFERENCE_HOSTS.some((pattern) => pattern.test(lowered));
+}
+
 /** Every `scheme://host` authority on a line, host lowercased and port stripped. */
 function urlHosts(line: string): string[] {
   const out: string[] = [];
@@ -499,6 +536,11 @@ function anchorsFor(files: readonly FileInfo[], match: (line: string, file: File
     // package does. `tsdown.config.ts` serializing `process.env` is ordinary
     // tooling; pairing it with a network sink anywhere else proved nothing.
     if (file.devOnly === true) continue;
+    // The same reasoning covers test material and prose. `test/fetch.test.ts`
+    // calling `http://127.0.0.1:8080` is a test of the client, and a changelog
+    // naming a credential path is a sentence about a past release: neither is a
+    // destination this package contacts or a secret it reads when it runs.
+    if (file.role === 'test' || file.role === 'doc') continue;
     for (let index = 0; index < file.lines.length; index += 1) {
       const line = file.lines[index];
       if (line === undefined || line.length === 0) continue;
@@ -508,6 +550,97 @@ function anchorsFor(files: readonly FileInfo[], match: (line: string, file: File
     }
   }
   return out;
+}
+
+/**
+ * How many differently-named secret environment variables make a package look
+ * like it is gathering credentials rather than using one.
+ *
+ * The line rule `cred.many-secret-env-vars` reports the individual reads so a
+ * reader can see them; this threshold is what turns the pattern into a finding.
+ * Five is deliberately above what a plugin integrating with one or two services
+ * needs — a single service contributes one key and one base URL — and below what
+ * a credential collector touches.
+ */
+const SECRET_ENV_NAME_THRESHOLD = 5;
+
+/** Names that look like credentials rather than configuration. */
+const SECRET_ENV_NAME = /(?:API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTH)/;
+
+/** Every distinct `process.env.X`/`process.env['X']` secret-named read, with an anchor. */
+function secretEnvReads(files: readonly FileInfo[]): Map<string, Evidence> {
+  const found = new Map<string, Evidence>();
+  for (const file of files) {
+    if (file.decodeError !== undefined || file.devOnly === true) continue;
+    for (let index = 0; index < file.lines.length; index += 1) {
+      const line = file.lines[index];
+      if (line === undefined || line.length === 0) continue;
+      if (isCommentLine(line, file)) continue;
+      for (const match of line.matchAll(/process\.env(?:\.([A-Z][A-Z0-9_]*)|\[['"]([A-Z][A-Z0-9_]*)['"]\])/g)) {
+        const name = match[1] ?? match[2];
+        if (name === undefined || !SECRET_ENV_NAME.test(name)) continue;
+        if (!found.has(name)) found.set(name, { file: file.path, line: index + 1, snippet: safeClip(line, 160) });
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Obfuscation evidence that bundling does not already explain.
+ *
+ * The obfuscation correlations are about a package that hides how it is written.
+ * A bundle is not that: emitting a runtime loader, mangling local names and
+ * inlining literals is what a build tool does to every package, and treating it
+ * as concealment made `obf.obfuscation-with-network-callback` fire on 67% of the
+ * marketplace's most popular plugins — the "obfuscated payload" was esbuild's
+ * `__toESM` helper sitting in a `lib/` bundle next to the plugin's own API call.
+ *
+ * The distinction used here is severity after the generated-file ceiling, not the
+ * file's path: a rule that declared `generatedFileSeverity: 'low'` has already
+ * said that its match means less in generated output, so a finding still at
+ * `high` or `critical` is one that was not explained by bundling. A package that
+ * ships *only* a bundle therefore still reaches this correlation through rules
+ * without such a ceiling, which is the case the correlation exists for.
+ *
+ * @param input - the package rule input.
+ * @returns up to three anchors, or none.
+ */
+function genuineObfuscationAnchors(input: RuleInput): Evidence[] {
+  const out: Evidence[] = [];
+  for (const finding of input.lineFindings) {
+    if (!OBFUSCATION_PROOF_RULES.includes(finding.id)) continue;
+    // A concealment rule still needs to have survived the generated-output
+    // ceiling: an identifier like `_0x1a2b` in a bundle came from the minifier.
+    if (finding.severity === 'info' || finding.severity === 'low') continue;
+    for (const item of finding.evidence) {
+      out.push(item);
+      if (out.length >= 3) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * Evidence for findings that came from files describing shipped behavior.
+ *
+ * The correlation layer combines findings from across the package, which makes it
+ * the place where a match in a fixture or a changelog silently becomes a claim
+ * about runtime. A credential read in `test/credentials.test.ts` says the package
+ * tests its credential handling; it does not say the package reads credentials.
+ *
+ * @param input - the package rule input.
+ * @param prefix - rule id or id prefix to collect.
+ * @param cap - maximum anchors to return.
+ * @returns anchors from source, generated, and config files only.
+ */
+function runtimeEvidence(input: RuleInput, prefix: string, cap = 3): Evidence[] {
+  const developmentOnly = new Set(
+    input.files.filter((file) => file.role === 'test' || file.role === 'doc').map((file) => file.path),
+  );
+  return input.evidenceFor(prefix)
+    .filter((item) => !developmentOnly.has(item.file))
+    .slice(0, cap);
 }
 
 /** Anchors for lines that spawn a process. */
@@ -522,9 +655,40 @@ function commandSinkAnchors(files: readonly FileInfo[]): Evidence[] {
  * `fired('net.')`, because the net line rules only fire on *suspicious*
  * destinations: a plugin that quietly posts to its own API still has the sink
  * that the correlation is about.
+ *
+ * A line aimed at loopback is excluded, because the correlations claim a secret
+ * *leaves the machine* and a request to `127.0.0.1` cannot. This is not a
+ * hypothetical: at batch scale the evidence for "environment harvest and an
+ * outbound request" was repeatedly a local dev server or a browser-launch flag
+ * like `--proxy-server=http://127.0.0.1:9`, which is a test harness doing its
+ * job. Whether a loopback service is *itself* a hazard is the guard's question,
+ * asked at runtime with a real destination; it is not evidence of exfiltration.
  */
 function networkSinkAnchors(files: readonly FileInfo[]): Evidence[] {
-  return anchorsFor(files, (line, file) => !isCommentLine(line, file) && hasNetworkSink(line), 3);
+  return anchorsFor(
+    files,
+    (line, file) => !isCommentLine(line, file) && hasNetworkSink(line) && !pointsAtLoopback(line),
+    3,
+  );
+}
+
+/**
+ * Whether a line's only destinations are loopback or the unspecified address.
+ *
+ * Deliberately narrow: it strips the addresses that cannot route off the machine
+ * (`127.0.0.0/8`, `::1`, `0.0.0.0`) and nothing else. Private ranges stay, since
+ * a request to `10.0.0.5` from a plugin really does leave the process and reach
+ * another host — that is what the internal-topology rules are for.
+ */
+function pointsAtLoopback(line: string): boolean {
+  const hosts = urlHosts(line);
+  if (hosts.length === 0) return false;
+  return hosts.every((host) => {
+    const lowered = host.toLowerCase().replace(/^\[|\]$/g, '');
+    if (lowered === 'localhost' || lowered === '::1' || lowered === '0.0.0.0') return true;
+    const normalized = normalizeIPv4(lowered);
+    return normalized !== undefined && normalized.startsWith('127.');
+  });
 }
 
 /** Anchors for lines that decode an encoded payload. */
@@ -859,12 +1023,23 @@ export const LINE_RULES: LineRule[] = [
     severity: 'high',
     title: 'Reads or dumps the process environment',
     detail:
-      'The line serializes all of `process.env` or reads environment variables whose names look like secrets. CI runners and the harness export API keys into the environment, so a dump is a credential harvest.',
+      'The line takes the whole environment as a value — serializing it, iterating it, or printing it — rather than the one variable it needs. CI runners and the harness export API keys into the environment, so a dump is a credential harvest.',
     remediation: 'Read only the variables the plugin documents, one at a time, and never serialize the environment object or forward it into a log or request.',
     scope: CODE_SCOPES,
     test: fromRegex(
-      /JSON\.stringify\(\s*process\.env|Object\.(?:entries|keys|values)\(\s*process\.env|\.\.\.process\.env|process\.env\.\w*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)\w*|process\.env\[['"][^'"]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[^'"]*['"]\]|\b(?:printenv|env\s*\|)/gi,
+      /JSON\.stringify\(\s*process\.env|Object\.(?:entries|keys|values|assign)\(\s*[^)]*process\.env|structuredClone\(\s*process\.env|\bprintenv\b/gi,
     ),
+  },
+  {
+    id: 'cred.many-secret-env-vars',
+    category: 'credential-access',
+    severity: 'medium',
+    title: 'Reads several differently-named secret environment variables',
+    detail:
+      'One line here, or several across the package, read environment variables whose names look like credentials. Reading a single documented key is how a plugin is meant to authenticate; enumerating many differently-named ones is how credentials are gathered rather than used.',
+    remediation: 'Keep to the variables this plugin documents and needs, and delete reads of keys it has no feature for.',
+    scope: CODE_SCOPES,
+    test: fromRegex(/process\.env(?:\.|\[['"])[\w-]*(?:API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL)[\w-]*/gi),
   },
 
   /* ── obfuscation ────────────────────────────────────────────────────────── */
@@ -891,6 +1066,10 @@ export const LINE_RULES: LineRule[] = [
     id: 'obf.dynamic-require',
     category: 'obfuscation',
     inspectComments: true,
+    // A computed `require(id)` is how a bundle's own loader resolves its module
+    // table — it is the mechanism of bundling, not a concealed import. Capped
+    // rather than exempted, so a bundle-only package is still reported.
+    generatedFileSeverity: 'low',
     severity: 'high',
     title: 'Requires or imports a computed module path',
     detail:
@@ -1044,6 +1223,13 @@ export const LINE_RULES: LineRule[] = [
     scope: SOURCE_AND_CONFIG,
     test: fromPredicate((line, file) => {
       if (isCommentLine(line, file)) return false;
+      // Reaching the metadata service takes a request. Without this, code that
+      // *defends* against it was reported as doing it: an allowlist comparing the
+      // host against `metadata.google.internal` before throwing, and a semgrep
+      // rule whose `pattern-not-inside` names the address to exclude it, both
+      // produced `critical` findings. The scanner was flagging its own
+      // counterparts, which at batch scale was 7 packages.
+      if (!hasNetworkSink(line) && !/[a-z][a-z0-9+.-]{1,15}:\/\//i.test(line)) return false;
       const lowered = line.toLowerCase();
       if (METADATA_HOSTS.some((host) => lowered.includes(host))) return safeClip(line, 160);
       // The metadata address is also reachable in decimal or hex spelling.
@@ -1086,7 +1272,14 @@ export const LINE_RULES: LineRule[] = [
       const url = match?.[0];
       if (url === undefined) return false;
       const host = urlHosts(url)[0];
-      if (host !== undefined && isInternalHostname(host)) return false;
+      if (host === undefined || isInternalHostname(host)) return false;
+      // A namespace identifier is not a destination. `xmlns="http://www.w3.org/…"`
+      // and a license header's `http://opensource.org/licenses/MIT` are names
+      // written as URLs: nothing is ever requested from them, and no `https`
+      // version would be an improvement. These were most of the rule's 73 hits
+      // across 90 packages — more hits than packages, since one SVG or one
+      // `package.json` can carry several.
+      if (isNamespaceOrReferenceHost(host)) return false;
       return safeClip(url, 160);
     }),
   },
@@ -1655,12 +1848,126 @@ export const LINE_RULES: LineRule[] = [
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
+ * The rule ids that mean a credential was actually reached for.
+ *
+ * The correlation rules below are the strongest claims the catalog makes, and
+ * they are only as strong as their weakest half. Gating them on `fired('cred.')`
+ * let `cred.credential-path-mention` stand in for a credential *read* — and a
+ * mention is any line that names a secret path, including a UI label, a doc
+ * string, or a help message. At batch scale that made `exfil.*` fire on 77% of
+ * real marketplace plugins, nearly all of them on a label like
+ * `密钥读取优先级：.credentials.yaml` sitting in the same bundle as a `fetch`.
+ *
+ * A mention is worth reporting on its own. It is not evidence that a secret was
+ * read, so it cannot anchor a claim that a secret left the machine.
+ */
+const CREDENTIAL_READ_RULES: readonly string[] = [
+  'cred.read-ssh-private-key',
+  'cred.read-cloud-credentials',
+  'cred.read-registry-token',
+  'cred.read-browser-store',
+  'cred.read-system-secret',
+  'cred.read-dsh-credentials',
+];
+
+/**
+ * The severity a credential read must reach to anchor an exfiltration claim.
+ *
+ * `cred.read-dotenv-or-history` is deliberately absent from the list above and
+ * cannot pass this floor either. Reading a `.env` file is how an enormous number
+ * of ordinary plugins pick up their own configuration, and any plugin that calls
+ * an API also has an outbound sink — so accepting it made "reads a credential and
+ * sends it somewhere" fire on a plugin doing exactly what its README says. The
+ * rules that remain name stores whose contents are secrets for *other* systems:
+ * SSH keys, cloud credentials, registry tokens, browser password stores, and DSH's
+ * own credential file.
+ */
+const CREDENTIAL_READ_FLOOR: Severity = 'high';
+
+/** Every id `credentialReadAnchors` depends on, exported so a test can check it. */
+export const CREDENTIAL_READ_RULE_IDS: readonly string[] = CREDENTIAL_READ_RULES;
+
+/**
+ * The rule ids whose subject is concealment itself.
+ *
+ * The obfuscation correlations claim the package "hides how it is written", which
+ * is a strong statement, and they were anchoring it on whatever fired in the
+ * obfuscation category. Two of those rules are about dynamism rather than
+ * concealment, and both are ordinary in a plugin:
+ *
+ * - `obf.dynamic-require` matches `require(id)` with a computed path, which is
+ *   how plugin hosts load modules from a directory — including this one.
+ * - `obf.dynamic-code-eval` matches `new Function(source)` / `vm.runInNewContext`,
+ *   which is how a bundler evaluates a build, and how a test harness exposes
+ *   internals to itself.
+ *
+ * Neither says anything was hidden. The rules below do: hex-mangled identifiers,
+ * a base64 payload reaching an evaluator, and strings reassembled from fragments
+ * are the standard-library shapes of the obfuscators themselves, and a package
+ * that has none of them has not concealed anything.
+ */
+const OBFUSCATION_PROOF_RULES: readonly string[] = [
+  'obf.obfuscated-identifier',
+  'obf.base64-exec-chain',
+  'obf.string-reassembly',
+];
+
+/** Every id the obfuscation correlations depend on, exported so a test can check it. */
+export const OBFUSCATION_PROOF_RULE_IDS: readonly string[] = OBFUSCATION_PROOF_RULES;
+
+/**
+ * Anchors for the credential half of an exfiltration claim.
+ *
+ * Evidence is collected from the read rules themselves rather than with the
+ * `cred.` prefix. The prefix matched every credential finding, including
+ * `cred.credential-path-mention`, so a report could show a UI label or a bundle
+ * line as the "credential read" that justified the finding — evidence a reader
+ * could check and find did not support the claim.
+ *
+ * @param input - the package rule input.
+ * @returns up to three anchors for an actual secret-store read.
+ */
+function credentialReadAnchors(input: RuleInput): Evidence[] {
+  const developmentOnly = new Set(
+    input.files.filter((file) => file.role === 'test' || file.role === 'doc').map((file) => file.path),
+  );
+  const out: Evidence[] = [];
+  for (const finding of input.lineFindings) {
+    if (!CREDENTIAL_READ_RULES.includes(finding.id)) continue;
+    if (SEVERITY_ORDER.indexOf(finding.severity) > SEVERITY_ORDER.indexOf(CREDENTIAL_READ_FLOOR)) continue;
+    for (const item of finding.evidence) {
+      if (developmentOnly.has(item.file)) continue;
+      out.push(item);
+      if (out.length >= 3) return out;
+    }
+  }
+  return out;
+}
+
+/**
  * Correlations evaluated once per package.
  *
  * Each rule combines evidence that no single line contains; they are the reason
  * the catalog has two layers at all.
  */
 export const PACKAGE_RULES: PackageRule[] = [
+  {
+    id: 'cred.environment-secret-enumeration',
+    category: 'credential-access',
+    severity: 'high',
+    title: 'Enumerates many differently-named secret environment variables',
+    detail:
+      'The package reads a set of environment variables that look like credentials for services it has no other connection to. Reading one documented key is how a plugin authenticates; sweeping up five or more differently-named secrets is how credentials are collected.',
+    remediation: 'Delete the reads of variables this plugin has no feature for, and keep only the keys its documented integration needs.',
+    evaluate: (input) => {
+      const found = secretEnvReads(input.files);
+      if (found.size < SECRET_ENV_NAME_THRESHOLD) return undefined;
+      return [{
+        evidence: [...found.values()].slice(0, 4),
+        detail: `${found.size} distinct secret-named environment variables are read (${[...found.keys()].slice(0, 8).join(', ')}${found.size > 8 ? ', …' : ''}).`,
+      }];
+    },
+  },
   {
     id: 'exfil.credential-read-then-callback',
     category: 'exfiltration',
@@ -1670,11 +1977,11 @@ export const PACKAGE_RULES: PackageRule[] = [
       'A package that reads a credential file and also makes outbound requests has the two halves of credential theft. Individually each half can be justified; together they only make sense as data leaving the machine.',
     remediation: 'Remove the credential read. If the outbound call is the real feature, it must not be preceded by a read of a secret file anywhere in the package.',
     evaluate: (input) => {
+      const reads = credentialReadAnchors(input);
+      if (reads.length === 0) return undefined;
       const sinks = networkSinkAnchors(input.files);
-      if (!input.fired('cred.') || sinks.length === 0) return undefined;
-      const evidence = [...input.evidenceFor('cred.').slice(0, 3), ...sinks];
-      if (evidence.length === 0) return undefined;
-      return [{ evidence, severity: 'critical' }];
+      if (sinks.length === 0) return undefined;
+      return [{ evidence: [...reads, ...sinks], severity: 'critical' }];
     },
   },
   {
@@ -1686,10 +1993,11 @@ export const PACKAGE_RULES: PackageRule[] = [
       'A credential file is read somewhere in this package and a process is spawned somewhere else. That pairing is enough to pipe a secret into a command, exfiltrate it through a CLI, or rewrite the machine\'s configuration from stolen material.',
     remediation: 'Remove the credential access, and keep process spawning limited to commands that never see secret values.',
     evaluate: (input) => {
-      if (!input.fired('cred.')) return undefined;
+      const reads = credentialReadAnchors(input);
+      if (reads.length === 0) return undefined;
       const commands = commandSinkAnchors(input.files);
       if (commands.length === 0) return undefined;
-      return [{ evidence: [...input.evidenceFor('cred.').slice(0, 3), ...commands], severity: 'high' }];
+      return [{ evidence: [...reads, ...commands], severity: 'high' }];
     },
   },
   {
@@ -1701,12 +2009,12 @@ export const PACKAGE_RULES: PackageRule[] = [
       'All three ingredients of an encoded exfiltration are present: a credential is read, something is decoded or encoded, and a request leaves the machine. The encoding step is what hides the secret from a casual look at the traffic.',
     remediation: 'Remove the credential read or the outbound call. Never ship a package that both touches secrets and encodes a payload on its way out.',
     evaluate: (input) => {
+      const reads = credentialReadAnchors(input);
+      if (reads.length === 0) return undefined;
       const sinks = networkSinkAnchors(input.files);
       const decodes = decodeSinkAnchors(input.files);
-      if (!input.fired('cred.') || sinks.length === 0 || decodes.length === 0) return undefined;
-      const evidence = [...input.evidenceFor('cred.').slice(0, 2), ...decodes.slice(0, 2), ...sinks.slice(0, 2)];
-      if (evidence.length === 0) return undefined;
-      return [{ evidence, severity: 'critical' }];
+      if (sinks.length === 0 || decodes.length === 0) return undefined;
+      return [{ evidence: [...reads, ...decodes.slice(0, 2), ...sinks.slice(0, 2)], severity: 'critical' }];
     },
   },
   {
@@ -1718,10 +2026,14 @@ export const PACKAGE_RULES: PackageRule[] = [
       'The package reads or dumps process environment values and also opens outbound connections. CI runners and harness sessions export API keys into the environment, so this combination sends working credentials off the machine.',
     remediation: 'Remove the environment dump, and read only individually documented variables that the plugin actually needs.',
     evaluate: (input) => {
-      if (!input.fired('cred.env-') || !input.fired('net.')) return undefined;
-      const evidence = [...input.evidenceFor('cred.env-').slice(0, 3), ...input.evidenceFor('net.').slice(0, 3)];
-      if (evidence.length === 0) return undefined;
-      return [{ evidence, severity: 'critical' }];
+      const dumps = runtimeEvidence(input, 'cred.env-');
+      if (dumps.length === 0) return undefined;
+      // The same loopback-aware anchors the credential correlations use: a dump
+      // sent to `http://127.0.0.1:3080` has not left the machine, and a line
+      // aimed at loopback is a dev server, not a destination.
+      const sinks = networkSinkAnchors(input.files);
+      if (sinks.length === 0) return undefined;
+      return [{ evidence: [...dumps, ...sinks], severity: 'critical' }];
     },
   },
   {
@@ -1733,10 +2045,11 @@ export const PACKAGE_RULES: PackageRule[] = [
       'The package reads the system clipboard and also makes outbound requests. Clipboards hold passwords and tokens that were copied moments earlier, and nothing in this package explains why the two behaviors coexist.',
     remediation: 'Remove the clipboard read, or make the destination unreachable by default and documented for the user.',
     evaluate: (input) => {
-      if (!input.fired('exfil.clipboard-') || !input.fired('net.')) return undefined;
-      const evidence = [...input.evidenceFor('exfil.clipboard-').slice(0, 2), ...input.evidenceFor('net.').slice(0, 3)];
-      if (evidence.length === 0) return undefined;
-      return [{ evidence, severity: 'high' }];
+      const clipboard = runtimeEvidence(input, 'exfil.clipboard-', 2);
+      if (clipboard.length === 0) return undefined;
+      const sinks = networkSinkAnchors(input.files);
+      if (sinks.length === 0) return undefined;
+      return [{ evidence: [...clipboard, ...sinks], severity: 'high' }];
     },
   },
   {
@@ -1762,18 +2075,25 @@ export const PACKAGE_RULES: PackageRule[] = [
     severity: 'critical',
     title: 'Install hook combined with outbound network access',
     detail:
-      'The package declares a lifecycle hook and also opens outbound connections, so code runs at install time with network access available to it. Whatever the hook does, the payload it may fetch or send is not in the tarball.',
-    remediation: 'Remove the hook or the network access. An install that needs the network should be an explicit step the user runs.',
+      'The package declares a lifecycle hook whose command reaches the network, so code runs at install time with the ability to fetch or send payloads that are not in the tarball.',
+    remediation: 'Remove the network access from the hook, or remove the hook. An install that needs the network should be an explicit step the user runs.',
     evaluate: (input) => {
       if (input.installScripts.length === 0) return undefined;
       const network = /\b(?:curl|wget|fetch|Invoke-WebRequest|iwr|git\s+clone|npm\s+(?:i|install|ci)|pnpm\s+(?:i|add)|yarn\s+add|s3\s+cp|gsutil)\b|https?:\/\//i;
-      const fetching = input.installScripts.find((script) => network.test(script.command));
-      const evidence = [
-        ...(fetching !== undefined ? [scriptAnchor(input, fetching)] : []),
-        ...input.evidenceFor('net.').slice(0, 3),
-      ];
-      if (evidence.length === 0) return undefined;
-      return [{ evidence, severity: 'critical' }];
+      // The hook's *own* command has to reach the network. Accepting a network
+      // anchor from anywhere else in the package made this rule fire on every
+      // plugin whose `prepare` script runs the compiler and whose repository
+      // mentions an `http://` URL — the anchor it cited was a log message in an
+      // unrelated PowerShell helper.
+      const fetching = input.installScripts.find((script) => {
+        if (network.test(script.command)) return true;
+        const local = localScriptPath(script.command);
+        if (local === undefined) return false;
+        const file = input.files.find((candidate) => candidate.path === local);
+        return file !== undefined && file.lines.some((line) => !isCommentLine(line, file) && hasNetworkSink(line));
+      });
+      if (fetching === undefined) return undefined;
+      return [{ evidence: [scriptAnchor(input, fetching)], severity: 'critical' }];
     },
   },
   {
@@ -1785,11 +2105,11 @@ export const PACKAGE_RULES: PackageRule[] = [
       'The package hides how it is written and also makes outbound connections. Obfuscation has no purpose in a plugin except to keep the payload unreadable, and paired with a callback it is the standard shape of a staged implant.',
     remediation: 'Do not install this package. If it is genuinely needed, require readable source before it is used anywhere.',
     evaluate: (input) => {
+      const obfuscation = genuineObfuscationAnchors(input);
+      if (obfuscation.length === 0) return undefined;
       const sinks = networkSinkAnchors(input.files);
-      if (!input.fired('obf.') || sinks.length === 0) return undefined;
-      const evidence = [...input.evidenceFor('obf.').slice(0, 3), ...sinks];
-      if (evidence.length === 0) return undefined;
-      return [{ evidence, severity: 'critical' }];
+      if (sinks.length === 0) return undefined;
+      return [{ evidence: [...obfuscation, ...sinks], severity: 'critical' }];
     },
   },
   {
@@ -1801,10 +2121,11 @@ export const PACKAGE_RULES: PackageRule[] = [
       'The package hides its strings or identifiers and also spawns processes. Reading the source then tells the reviewer nothing about which command is actually run.',
     remediation: 'Require readable source: replace the encoded values with literals and the computed module paths with static imports.',
     evaluate: (input) => {
-      if (!input.fired('obf.')) return undefined;
+      const obfuscation = genuineObfuscationAnchors(input);
+      if (obfuscation.length === 0) return undefined;
       const commands = commandSinkAnchors(input.files);
       if (commands.length === 0) return undefined;
-      return [{ evidence: [...input.evidenceFor('obf.').slice(0, 3), ...commands], severity: 'high' }];
+      return [{ evidence: [...obfuscation, ...commands], severity: 'high' }];
     },
   },
   {

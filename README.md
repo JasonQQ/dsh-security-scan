@@ -83,11 +83,11 @@ Verified by `npm run inventory`; the marketplace treats these as claims about th
 
 | | Rules | Categories |
 | --- | ---: | --- |
-| Static audit — line rules | 60 | credential-access, network-callback, obfuscation, install-script, supply-chain, harness-abuse, persistence, privilege, exfiltration, prompt-injection, destructive |
-| Static audit — correlation rules | 17 | package-level: credential read **plus** outbound sink, obfuscation **plus** callback, install hook **plus** network |
+| Static audit — line rules | 61 | credential-access, network-callback, obfuscation, install-script, supply-chain, harness-abuse, persistence, privilege, exfiltration, prompt-injection, destructive |
+| Static audit — correlation rules | 18 | package-level: credential read **plus** outbound sink, obfuscation **plus** callback, install hook **plus** network |
 | Runtime guard — input rules | 61 | destructive, exfiltration, persistence, privilege, ssrf, credential-access, harness-abuse, sandbox-escape, secret-leak |
 | Runtime guard — output rules | 20 | secret-leak, ssrf, harness-abuse |
-| **Total** | **158** | |
+| **Total** | **160** | |
 
 Guard actions: **34 block**, **23 ask**, **4 warn**.
 
@@ -149,7 +149,7 @@ Reports default to **bilingual** — Chinese and English together, Chinese first
 
 Two things stay English on purpose: the **JSON report and the audit log**, whose field names are the log's vocabulary and would stop being greppable if they followed a config value; and the **tool descriptions and system-prompt section**, which are instructions to a model in a harness whose own prompts are English.
 
-All **158 rules** carry Chinese text, translated per rule id in `rules.zh.ts` for each catalog. A rule added later that has no translation renders in English rather than being omitted, and the coverage is reported by `/security status` — so a gap appears as a number rather than as half a report that quietly dropped a language.
+All **160 rules** carry Chinese text, translated per rule id in `rules.zh.ts` for each catalog. A rule added later that has no translation renders in English rather than being omitted, and the coverage is reported by `/security status` — so a gap appears as a number rather than as half a report that quietly dropped a language.
 
 **Start in `monitor` mode.** It records every decision without refusing anything, so you can read `/security status` and see which rules your own workflow trips before any call is blocked. A guard that blocks on its first day gets turned off on its first day.
 
@@ -184,7 +184,7 @@ The compiled output imports **only `node:` builtins** — verified on every CI r
 ```console
 $ npm run inventory
 Built output imports
-  37 distinct module specifiers
+  47 distinct module specifiers
   0 non-builtin: none
 ```
 
@@ -204,6 +204,7 @@ Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
 - **A registry install is audited by name, not by content.** The scanner cannot see what npm or git will serve. Audits expire for that reason, and the refusal text says so rather than implying a guarantee it cannot make.
 - **The chain proves tampering, not integrity.** Anyone holding both the log and the key can rebuild a consistent chain. The guarantee is that silent modification is impossible.
 - **`monitor` protects nothing.** It records. That is its purpose.
+- **The default thresholds are not yet a usable refusal floor at marketplace scale.** A batch audit of the marketplace's top 100 plugins by stars (`docs/stress/`) refused 67 of the 91 it could scan (74%). Reading those reports found nine rules deciding grades on evidence that did not support them — a UI label standing in for a credential read, a bundler's own loader counted as an obfuscated payload, a test asserting a sanitizer works counted as a shipped destructive command — and fixing them moved the run from 80 refusals to 67. That is progress, not convergence: 67 of 91 is still a gate that would be switched off, and half the reports score exactly `0/100`, so the score is not yet a gradient either. [`docs/stress/CALIBRATION.md`](docs/stress/CALIBRATION.md) states what is fixed, what is measured, and what remains open. Run `monitor` and read the log before pointing `enforce` at a whole ecosystem.
 
 ## Development
 
@@ -211,7 +212,7 @@ Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
 npm ci --ignore-scripts
 npm run typecheck
 npm run build
-npm test              # 164 unit + integration tests, then the adversarial smoke check
+npm test              # 233 unit + integration tests, then the adversarial smoke check
 npm run smoke         # guard rules only: benign calls must stay clean, dangerous ones must not
 npm run inventory     # the numbers quoted above, read from the code
 ```

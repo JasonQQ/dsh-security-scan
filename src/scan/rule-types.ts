@@ -44,6 +44,17 @@ export interface FileInfo {
    */
   generated?: boolean;
   /**
+   * Which kind of evidence this file is, for capping how much a finding in it counts.
+   *
+   * A finding's severity is a claim about what installing the package does. A
+   * destructive command in a test fixture, a credential path in a changelog, and a
+   * metadata address inside a linter rule that blocks it are all real matches that
+   * describe something other than shipped behavior — see `fileRoleOf`. Optional
+   * because a `FileInfo` built directly in a test need not classify itself; an
+   * absent role is treated as `source`, which is the strict reading.
+   */
+  role?: 'source' | 'test' | 'doc' | 'generated' | 'config';
+  /**
    * True for build-tool configuration (`*.config.ts`, `tsconfig.json`, …).
    *
    * These run in the maintainer's checkout, never on the machine that installs

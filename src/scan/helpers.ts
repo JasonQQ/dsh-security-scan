@@ -155,9 +155,17 @@ export const DYNAMIC_CODE_SINKS: readonly string[] = [
   'isolated-vm',
 ];
 
-/** Encoded-payload sinks. */
+/**
+ * Encoded-payload sinks.
+ *
+ * `Buffer.from(` is deliberately **not** here. Without an encoding argument it
+ * is a byte conversion, and it is how every Node package turns a string into
+ * bytes before hashing, signing, writing, or sending — counting it as a decode
+ * step made a credential read plus any `Buffer.from` plus any request look like
+ * an encoded exfiltration, which is the ordinary shape of a plugin that talks to
+ * an API. `hasDecodeSink` accepts the calls that name an encoding.
+ */
 export const DECODE_SINKS: readonly string[] = [
-  "Buffer.from(",
   'atob(',
   'btoa(',
   'fromCharCode',
@@ -168,6 +176,17 @@ export const DECODE_SINKS: readonly string[] = [
   'fromhex',
   'unhexlify',
   'String.fromCharCode',
+];
+
+/**
+ * Calls that only decode when they name an encoding.
+ *
+ * A `base64`/`hex` argument is what distinguishes `Buffer.from(text)` — a
+ * conversion — from `Buffer.from(text, 'base64')`, which reconstructs bytes that
+ * were deliberately hidden as text.
+ */
+const EXPLICIT_DECODE_CALLS: readonly RegExp[] = [
+  /Buffer\.from\(\s*[^)]*,\s*['"](?:base64|base64url|hex)['"]/,
 ];
 
 /** Command fragments that are destructive regardless of context. */
@@ -241,7 +260,8 @@ export function hasDynamicCodeSink(line: string): boolean {
 
 /** Whether a line decodes an encoded payload. */
 export function hasDecodeSink(line: string): boolean {
-  return hasSink(line, DECODE_SINKS);
+  if (hasSink(line, DECODE_SINKS)) return true;
+  return EXPLICIT_DECODE_CALLS.some((pattern) => pattern.test(line));
 }
 
 /**
